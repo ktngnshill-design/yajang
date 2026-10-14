@@ -69,6 +69,14 @@ small { color: var(--muted); font-size: 12.5px; }
 .nav-foot #appVer { opacity: .5; font-size: 11px; }
 #app.rail .nav-foot #appVer { display: none; }
 /* 새 버전 알림 (설치형 앱) */
+.upd-back { position: fixed; inset: 0; z-index: 80; background: rgba(20,32,52,.45); display: grid; place-items: center; padding: 16px; }
+.upd-card { background: #fff; border-radius: 18px; box-shadow: 0 18px 50px rgba(15,28,50,.35); width: min(520px, 100%); padding: 28px 28px 22px; text-align: center; }
+.upd-card h2 { font-size: 24px; margin: 10px 0 6px; }
+.upd-card p { color: var(--muted); font-size: 15px; line-height: 1.55; margin: 12px 0 20px; }
+.upd-ic { width: 64px; height: 64px; border-radius: 50%; background: var(--tint); color: var(--navy); display: grid; place-items: center; margin: 0 auto; }
+.upd-ver { font-size: 14px; color: var(--navy-ink); font-variant-numeric: tabular-nums; background: var(--tint-2); border-radius: 8px; padding: 6px 10px; display: inline-block; }
+.upd-btns { display: grid; grid-template-columns: 1fr 1.6fr; gap: 10px; }
+.upd-btns .btn { min-height: 54px; font-size: 17px; border-radius: 12px; }
 .upd-bar { position: fixed; left: 50%; bottom: 18px; transform: translateX(-50%); z-index: 60; display: flex; align-items: center; gap: 10px; background: var(--navy-ink); color: #fff; padding: 10px 12px 10px 16px; border-radius: 12px; box-shadow: 0 8px 24px rgba(20,35,60,.3); font-size: 14px; max-width: calc(100% - 32px); }
 .upd-bar .btn.ghost { color: #fff; border-color: rgba(255,255,255,.4); background: transparent; }
 #navToggle { border: 1px solid rgba(255,255,255,.3); background: transparent; color: #fff; border-radius: 6px; padding: 6px; cursor: pointer; font-size: 12px; }
@@ -691,7 +699,7 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
 
 </script>
 <script>
-const APP_VERSION = '2026.10.14-1145';
+const APP_VERSION = '2026.10.14-1148';
 'use strict';
 /* ================= 기본 유틸 ================= */
 const $ = (s, r = document) => r.querySelector(s);
@@ -6058,17 +6066,28 @@ function initPWA() {
   }).catch(e => console.warn('서비스 워커 등록 실패', e));
 }
 /** 새 버전 알림: 조사 도중 화면이 갑자기 바뀌지 않게, 누를 때만 적용 */
+/** 새 버전 알림: 화면 가운데 큰 창. 조사 도중 화면이 갑자기 바뀌지 않게, '지금 업데이트'를 누를 때만 적용 */
 function showUpdateBar(reg) {
-  if ($('#updBar')) return;
-  const apply = h('button', { class: 'btn small pri', type: 'button' }, '지금 적용');
-  const bar = h('div', { id: 'updBar', class: 'upd-bar', role: 'status' }, h('span', null, '새 버전이 있습니다. 기록은 그대로 유지됩니다.'), apply,
-    h('button', { class: 'btn small ghost', type: 'button', onclick: () => bar.remove() }, '나중에'));
+  if ($('#updDlg')) return;
+  const ver = h('div', { class: 'upd-ver' }, `현재 ${APP_VERSION}`);
+  // 새 버전 번호는 받아 둔 서비스 워커에게 물어봄
+  try { const ch = new MessageChannel(); ch.port1.onmessage = e => { if (e.data) ver.textContent = `현재 ${APP_VERSION}  →  새 버전 ${e.data}`; }; reg.waiting.postMessage({ type: 'VERSION' }, [ch.port2]); } catch (e) { /* */ }
+  const apply = h('button', { class: 'btn pri upd-go', type: 'button' }, '지금 업데이트');
+  const later = h('button', { class: 'btn upd-later', type: 'button' }, '나중에');
+  const box = h('div', { class: 'upd-card', role: 'alertdialog', 'aria-modal': 'true', 'aria-labelledby': 'updTitle' },
+    h('div', { class: 'upd-ic', html: '<svg viewBox="0 0 24 24" width="34" height="34" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v12M7 10l5 5 5-5"/><path d="M4 17v2.5A1.5 1.5 0 005.5 21h13a1.5 1.5 0 001.5-1.5V17"/></svg>' }),
+    h('h2', { id: 'updTitle' }, '새 버전이 있습니다'), ver,
+    h('p', null, '업데이트해도 조사 기록·사진·도면은 그대로 남습니다. 조사 중이면 ‘나중에’를 누르고, 다음에 앱을 열 때 다시 물어봅니다.'),
+    h('div', { class: 'upd-btns' }, later, apply));
+  const back = h('div', { id: 'updDlg', class: 'upd-back' }, box);
+  later.onclick = () => back.remove();
   apply.onclick = async () => {
-    apply.disabled = true; apply.textContent = '적용 중…';
+    apply.disabled = true; later.disabled = true; apply.textContent = '업데이트 중…';
     try { saveSoon.flush(); if (typeof saveProjectNow === 'function') await saveProjectNow(); } catch (e) { /* */ }
     if (reg.waiting) reg.waiting.postMessage({ type: 'SKIP_WAITING' }); else location.reload();
   };
-  document.body.append(bar);
+  document.body.append(back);
+  setTimeout(() => apply.focus(), 50);
 }
 
 /* ================= 연습용 예제 ================= */

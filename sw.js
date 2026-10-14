@@ -1,5 +1,5 @@
 /* 현장조사 야장 – 서비스 워커: 앱 파일을 태블릿에 보관(오프라인 실행) · 새 버전은 사용자가 '적용'을 누를 때 교체 */
-const VERSION = '2026.10.14-1145';
+const VERSION = '2026.10.14-1148';
 const CACHE = 'yajang-' + VERSION, FONT_CACHE = 'yajang-fonts';
 const CORE = ['./', './index.html', './manifest.webmanifest', './icon-192.png', './icon-512.png', './icon-maskable-512.png'];
 self.addEventListener('install', e => {
@@ -12,7 +12,11 @@ self.addEventListener('activate', e => {
     await self.clients.claim();
   })());
 });
-self.addEventListener('message', e => { if (e.data && e.data.type === 'SKIP_WAITING') self.skipWaiting(); });
+self.addEventListener('message', e => {
+  if (!e.data) return;
+  if (e.data.type === 'SKIP_WAITING') self.skipWaiting();
+  else if (e.data.type === 'VERSION' && e.ports && e.ports[0]) e.ports[0].postMessage(VERSION);   // 업데이트 창에 새 버전 번호 표시
+});
 self.addEventListener('fetch', e => {
   const req = e.request; if (req.method !== 'GET') return;
   const url = new URL(req.url);
