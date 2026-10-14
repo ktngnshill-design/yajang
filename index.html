@@ -203,6 +203,12 @@ select.in.disp { min-height: 44px; width: auto; max-width: 260px; }
 .sb-seg.sb-cols .sw { min-width: 0; width: 28px; height: 28px; padding: 0; border: 2px solid #fff; }
 .sb-seg.sb-cols .sw + .sw { border-left: 2px solid #fff; }
 .sb-seg.sb-cols .sw.on { box-shadow: 0 0 0 2.5px var(--navy); }
+.sb-row { flex-basis: 100%; display: flex; }
+.sb-seg.sb-items { align-items: stretch; }
+.sb-seg.sb-items .sb-cap { display: flex; align-items: center; padding: 0 10px; font-size: 12px; font-weight: 700; color: var(--navy-ink); background: #f4f6fa; border-right: 1px solid var(--line); }
+.sb-seg.sb-items button { flex-direction: row; gap: 6px; height: 44px; min-width: 0; padding: 0 12px; font-size: 14px; }
+.sb-seg.sb-items button i { width: 12px; height: 12px; border-radius: 3px; flex: none; }
+.sb-seg.sb-items button.on { font-weight: 700; }
 .sb-del { height: 50px; border-radius: 12px; border: 1px solid #f0c4c2; background: #fff; color: var(--red); padding: 0 12px; cursor: pointer; box-shadow: 0 2px 6px rgba(20,35,60,.12); }
 .msize span { display: flex; flex-direction: column; align-items: center; min-width: 64px; padding: 0 4px; line-height: 1.2; border-inline: 1px solid var(--line); }
 .msize span small { font-size: 11px; }
@@ -699,7 +705,7 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
 
 </script>
 <script>
-const APP_VERSION = '2026.10.14-1148';
+const APP_VERSION = '2026.10.14-1604';
 'use strict';
 /* ================= 기본 유틸 ================= */
 const $ = (s, r = document) => r.querySelector(s);
@@ -2018,7 +2024,10 @@ function drawMarkups(c, sheet, view, o) {
   const { s, tx, ty } = view; const X = x => x * s + tx, Y = y => y * s + ty; const R = o.R, red = '#d1342f';
   if (!(R > 0.3)) return;
   c.save(); c.lineCap = 'round'; c.lineJoin = 'round';
-  if (o.disp === 'field' && o.memo !== false) drawMemos(c, sheet, view, o);
+  if (o.memo !== false) {
+    if (o.disp === 'field') drawMemos(c, sheet, view, o);
+    else for (const g of shapesFor(sheet, 'm', o.disp)) drawShape(c, g, view, o, !!(o.sel && o.sel.type === 'g' && o.sel.id === g.id));   // 항목별 위치도: 그 항목 도형만
+  }
   const list = o.disp === 'field' ? sheet.markers : sheet.markers.filter(m => m.items[o.disp]);
   const lw = o.lw;
   const Rw = R / s, NP = new Map(); for (const m of list) NP.set(m, markerNumXY(m, Rw));
@@ -2075,7 +2084,25 @@ const shapesOf = sh => sh.shapes || (sh.shapes = []);
 /** 도형이 어느 조사에 속하는지: g.v = 'm'(3 현장조사 → 현장번호 위치도) / 'ap'(4 외관조사 → 중량물 조사위치도). 예전 도형(v 없음)은 둘 다 */
 const shapeIn = (g, v) => !g.v || g.v === v;
 const curShapeV = () => (V.mode === 'ap' ? 'ap' : 'm');
-const apShapes = s => (s.shapes || []).filter(g => shapeIn(g, 'ap'));
+/** 도형 항목 (g.it) – 출력할 때 항목별 위치도에 나눠 넣음
+ *  3 현장조사: 부재규격·철근탐사·반발경도·코어 (+ 현장번호 위치도에는 전부)
+ *  4 외관조사: 균열(결함 및 외관)·조적조·중량물·지장물 (지장물 위치도는 지장물 도형이 있을 때만) */
+const SHAPE_ITEMS = {
+  m: [['dim', '부재규격'], ['scan', '철근탐사'], ['hammer', '반발경도'], ['core', '코어']],
+  ap: [['defect', '균열'], ['wall', '조적조'], ['heavy', '중량물'], ['obstacle', '지장물']],
+};
+const SHAPE_IT_LB = Object.fromEntries([...SHAPE_ITEMS.m, ...SHAPE_ITEMS.ap]);
+const SHAPE_IT_COL = { dim: '#2f8a57', scan: '#2c6cc4', hammer: '#b5770c', core: '#6b4bb4', defect: '#d1342f', wall: '#a0522d', heavy: '#6b4bb4', obstacle: '#0f7c86' };
+/** 도형의 항목. 항목을 안 정한 예전 도형: 외관조사 → 중량물(예전 그대로), 현장조사 → 없음(현장번호 위치도에만) */
+const shapeItem = (g, v) => (SHAPE_ITEMS[v].some(([k]) => k === g.it) ? g.it : v === 'ap' && !g.it ? 'heavy' : '');
+/** 도면의 도형 중 v(조사) · it(항목)에 맞는 것 (it 없으면 그 조사 전부) */
+const shapesFor = (s, v, it) => (s.shapes || []).filter(g => shapeIn(g, v) && (it == null || shapeItem(g, v) === it));
+const apShapes = s => shapesFor(s, 'ap');
+/** 새 도형 항목: 현장조사 = 마지막에 고른 항목(항목별 보기로 바꾸면 그 항목) / 외관조사 = 고른 항목(결함·중량물·조적벽 바꾸면 따라감) */
+function curShapeIt() {
+  if (curShapeV() === 'ap') { const k = V.opts.shapeItAp; return SHAPE_ITEMS.ap.some(([q]) => q === k) ? k : (SHAPE_ITEMS.ap.some(([q]) => q === V.apKind) ? V.apKind : 'defect'); }
+  const k = V.opts.shapeItM; return SHAPE_ITEMS.m.some(([q]) => q === k) ? k : 'dim';
+}
 const PEN_ACI = { '#d1342f': 1, '#2c6cc4': 5, '#1f2733': 7, '#2f8a57': 3 };
 /** 도형 외곽 다각형 (도면 좌표) – 상자에 꽉 차게 */
 function shapePoly(g) {
@@ -2117,7 +2144,16 @@ function drawShape(c, g, view, o, sel) {
   if (o.preview) c.globalAlpha = 0.75;
   c.strokeStyle = col; c.lineWidth = o.penW; c.stroke();
   c.restore();
+  if (o.tags) drawShapeTag(c, g, view, o.tags);
   if (sel) for (const [x, y] of shapeCorners(g)) drawTipHandle(c, x * s + tx, y * s + ty);
+}
+/** 화면에서만: 도형 왼쪽 위에 항목 이름표 (철근탐사, 지장물 …) */
+function drawShapeTag(c, g, view, v) {
+  const it = shapeItem(g, g.v || v), lb = SHAPE_IT_LB[it]; if (!lb) return;
+  const { s, tx, ty } = view, x = Math.min(g.x0, g.x1) * s + tx, y0 = Math.min(g.y0, g.y1) * s + ty;
+  c.save(); c.font = `700 11.5px ${UI_FONT}`; const w = c.measureText(lb).width + 10, hh = 17, y = y0 - hh - 3 < 2 ? y0 + 3 : y0 - hh - 3;
+  c.globalAlpha = 0.92; c.fillStyle = SHAPE_IT_COL[it] || '#1d3a66'; c.beginPath(); if (c.roundRect) c.roundRect(x, y, w, hh, 5); else c.rect(x, y, w, hh); c.fill();
+  c.globalAlpha = 1; c.fillStyle = '#fff'; c.textAlign = 'left'; c.textBaseline = 'middle'; c.fillText(lb, x + 5, y + hh / 2 + 0.5); c.restore();
 }
 /** 번호 원(또는 네모)에서 조사 위치까지: 화살표 / ⊗ */
 function drawLeader(c, cx, cy, px, py, sym, R, lw, col) {
@@ -2178,7 +2214,7 @@ function drawApMarkups(c, sheet, view, o) {
   if (!(R > 0.3)) return;
   c.save(); c.lineCap = 'round'; c.lineJoin = 'round';
   if (o.memo) drawMemos(c, sheet, view, { ...o, shapes: 'ap' });
-  else if (o.only === 'heavy') for (const g of apShapes(sheet)) drawShape(c, g, view, o, false);   // 중량물 조사위치도: 외관조사에서 그린 도형
+  else if (o.only) for (const g of shapesFor(sheet, 'ap', o.only)) drawShape(c, g, view, o, false);   // 위치도별: 그 항목으로 고른 도형만 (지장물 위치도는 도형만)
   if (!o.only || o.only === 'wall') drawWalls(c, sheet, view, o);
   const list = (sheet.ap || []).filter(a => !o.only || a.kind === o.only);
   const lw = o.lw, Rw = R / s, NP = new Map(); for (const a of list) NP.set(a, markerNumXY(a, Rw));
@@ -2300,8 +2336,8 @@ function renderFg() {
   c.setTransform(V.dpr, 0, 0, V.dpr, 0, 0);
   const R = markerR();
   const ap = V.mode === 'ap';
-  if (ap) drawApMarkups(c, V.sheet, V.view, { R, lw: Math.max(0.6, R * 0.1), penW: Math.max(0.8, R * 0.13), sel: V.sel, labels: V.opts.labels, memo: true, screen: true });
-  else drawMarkups(c, V.sheet, V.view, { R, lw: Math.max(0.6, R * 0.1), penW: Math.max(0.8, R * 0.13), disp: V.disp, numMap: V.numMap, sel: V.sel, labels: V.opts.labels, badges: true, prefixOf, prefix: V.disp !== 'field' ? (S.proj.settings.itemPrefix[V.disp] || '') : '' });
+  if (ap) drawApMarkups(c, V.sheet, V.view, { R, lw: Math.max(0.6, R * 0.1), penW: Math.max(0.8, R * 0.13), sel: V.sel, labels: V.opts.labels, memo: true, screen: true, tags: 'ap' });
+  else drawMarkups(c, V.sheet, V.view, { R, lw: Math.max(0.6, R * 0.1), penW: Math.max(0.8, R * 0.13), disp: V.disp, numMap: V.numMap, sel: V.sel, labels: V.opts.labels, badges: true, tags: 'm', prefixOf, prefix: V.disp !== 'field' ? (S.proj.settings.itemPrefix[V.disp] || '') : '' });
   if (V.stroke) {
     const p = V.stroke.pts; c.beginPath(); c.moveTo(p[0].x, p[0].y); for (const q of p) c.lineTo(q.x, q.y);
     c.lineCap = 'round'; c.lineJoin = 'round';
@@ -2327,7 +2363,7 @@ function renderFg() {
     }
   }
   if (V.calib) for (const [i, w] of V.calib.pts.entries()) { const [x, y] = w2s(w[0], w[1]); c.strokeStyle = '#1d6fd1'; c.lineWidth = 2; c.beginPath(); c.moveTo(x - 14, y); c.lineTo(x + 14, y); c.moveTo(x, y - 14); c.lineTo(x, y + 14); c.stroke(); c.font = `700 14px ${UI_FONT}`; c.fillStyle = '#1d6fd1'; c.fillText(i ? 'B' : 'A', x + 8, y - 8); }
-  if (V.drag && V.drag.kind === 'shape' && V.down && V.down.moved) { const g = shapeFromDrag(V.drag.a, V.drag.b, true); if (g) drawShape(c, g, V.view, { R, penW: Math.max(0.8, R * 0.13), preview: true }, false); }
+  if (V.drag && V.drag.kind === 'shape' && V.down && V.down.moved) { const g = shapeFromDrag(V.drag.a, V.drag.b, true); if (g) drawShape(c, g, V.view, { R, penW: Math.max(0.8, R * 0.13), preview: true, tags: curShapeV() }, false); }
   syncShapeBarLazy();
   if (V.drag && V.drag.kind === 'rect') { const a = V.drag.a, b = V.drag.b; c.strokeStyle = '#1d6fd1'; c.setLineDash([6, 4]); c.lineWidth = 2; c.strokeRect(a.x, a.y, b.x - a.x, b.y - a.y); c.setLineDash([]); c.fillStyle = 'rgba(29,111,209,.08)'; c.fillRect(a.x, a.y, b.x - a.x, b.y - a.y); }
 }
@@ -2474,10 +2510,10 @@ function hitStroke(pt, tol = 11) {
 function ptInPoly(x, y, poly) { let c = false; for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) { const [xi, yi] = poly[i], [xj, yj] = poly[j]; if ((yi > y) !== (yj > y) && x < (xj - xi) * (y - yi) / (yj - yi) + xi) c = !c; } return c; }
 /** 도형 적중: 외곽선 가까이 (edgeOnly 아니면 안쪽도) */
 function hitShape(pt, edgeOnly) {
-  if (V.disp !== 'field') return null;
   const L = shapesOf(V.sheet), sv = curShapeV();
   for (let k = L.length - 1; k >= 0; k--) {
     if (!shapeIn(L[k], sv)) continue;
+    if (sv === 'm' && V.disp !== 'field' && shapeItem(L[k], 'm') !== V.disp) continue;   // 항목별 보기: 그 항목 도형만 보임
     const g = L[k], poly = shapePoly(g).map(([x, y]) => w2s(x, y));
     for (let i = 0; i < poly.length; i++) { const a = poly[i], b = poly[(i + 1) % poly.length]; if (segDist(pt.x, pt.y, a[0], a[1], b[0], b[1]) < 11) return g; }
     if (!edgeOnly && ptInPoly(pt.x, pt.y, poly)) return g;
@@ -2643,7 +2679,7 @@ function shapeFromDrag(a, b, preview) {
   if (preview && Math.max(w, hh) < 4) return null;
   if (Math.min(w, hh) < 10) { const m = Math.max(w, hh, 20); b = { x: a.x + (Math.sign(b.x - a.x) || 1) * m, y: a.y + (Math.sign(b.y - a.y) || 1) * m }; }
   const p = s2w(a.x, a.y), q = s2w(b.x, b.y);
-  return normShape({ id: uid(), v: curShapeV(), k: V.opts.shapeKind || 'rect', x0: p[0], y0: p[1], x1: q[0], y1: q[1], hatch: V.opts.shapeHatch !== false, color: V.opts.penColor });
+  return normShape({ id: uid(), v: curShapeV(), it: curShapeIt(), k: V.opts.shapeKind || 'rect', x0: p[0], y0: p[1], x1: q[0], y1: q[1], hatch: V.opts.shapeHatch !== false, color: V.opts.penColor });
 }
 function normShape(g) { const x0 = Math.min(g.x0, g.x1), x1 = Math.max(g.x0, g.x1), y0 = Math.min(g.y0, g.y1), y1 = Math.max(g.y0, g.y1); Object.assign(g, { x0, x1, y0, y1 }); return g; }
 function finishShape(a, b, moved) {
@@ -2658,11 +2694,22 @@ function syncShapeBar() {
   const box = $('#shapeBar'); if (!box) return;
   const sg = V.tool === 'shape' || V.tool === 'select' ? selShape() : null, on = !!V.sheet && (V.tool === 'shape' || !!sg);
   box.hidden = !on; $('#stage').classList.toggle('shaping', on); if (!on) { box.innerHTML = ''; return; }
+  const sv = curShapeV();
   const cur = sg || { k: V.opts.shapeKind || 'rect', hatch: V.opts.shapeHatch !== false, color: V.opts.penColor };
+  const curIt = sg ? shapeItem(sg, sg.v || sv) : curShapeIt();
   const apply = fn => { if (sg) { pushUndo(); fn(sg); touchSheet(); } saveOpts(); syncTools(); syncShapeBar(); requestRender(false); };
   const ico = d => h('span', { html: `<svg viewBox="0 0 24 24" width="21" height="21" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${d}</svg>` });
   const btn = (on2, lb, d, fn, title) => h('button', { type: 'button', class: on2 ? 'on' : '', 'aria-pressed': String(on2), title: title || lb, onclick: fn }, ico(d), h('small', null, lb));
   box.innerHTML = '';
+  // 항목: 출력할 때 어느 위치도에 들어갈지
+  const pickIt = k => {
+    if (sv === 'ap') V.opts.shapeItAp = k; else V.opts.shapeItM = k;
+    apply(g => { g.it = k; g.v = sv; });
+    if (sg && sv === 'm' && V.disp !== 'field' && k !== V.disp) { V.sel = null; syncShapeBar(); requestRender(false); toast(`이 도형은 ${SHAPE_IT_LB[k]} 위치도로 옮겼습니다 (지금 보기에서는 안 보임)`, { ms: 2600 }); }
+  };
+  box.append(h('div', { class: 'sb-row' }, h('div', { class: 'sb-seg sb-items', role: 'group', 'aria-label': '도형 항목' },
+    h('span', { class: 'sb-cap' }, '항목'),
+    SHAPE_ITEMS[sv].map(([k, lb]) => h('button', { type: 'button', class: curIt === k ? 'on' : '', 'aria-pressed': String(curIt === k), title: `${lb} 위치도에 넣기`, onclick: () => pickIt(k) }, h('i', { style: { background: SHAPE_IT_COL[k] } }), h('span', null, lb))))));
   box.append(h('div', { class: 'sb-seg', role: 'group', 'aria-label': '도형 모양' }, SHAPE_KINDS.map(([k, lb, d]) => btn(cur.k === k, lb, d, () => { V.opts.shapeKind = k; apply(g => { g.k = k; }); }))));
   box.append(h('div', { class: 'sb-seg', role: 'group', 'aria-label': '빗금' },
     btn(cur.hatch, '빗금', '<rect x="4" y="5" width="16" height="14" rx="1"/><path d="M4 13l8-8M4 19l14-14M10 19l10-10M16 19l4-4"/>', () => { V.opts.shapeHatch = true; apply(g => { g.hatch = true; }); }, '도형 안에 빗금 (기본)'),
@@ -2670,7 +2717,7 @@ function syncShapeBar() {
   box.append(h('div', { class: 'sb-seg sb-cols', role: 'group', 'aria-label': '색' }, PEN_COLORS.map(col => h('button', { type: 'button', class: 'sw' + (cur.color === col ? ' on' : ''), style: { background: col }, 'aria-label': '도형 색', onclick: () => { V.opts.penColor = col; apply(g => { g.color = col; }); } }))));
   if (sg) box.append(h('button', { type: 'button', class: 'sb-del', onclick: () => { deleteSelection(); syncShapeBar(); } }, '이 도형 지우기'));
 }
-function syncShapeBarLazy() { const sg = selShape(), k = `${V.tool}|${sg ? sg.id : ''}|${V.sheet ? V.sheet.id : ''}`; if (k !== V.sbKey) { V.sbKey = k; syncShapeBar(); } }
+function syncShapeBarLazy() { const sg = selShape(), k = `${V.tool}|${sg ? sg.id : ''}|${V.sheet ? V.sheet.id : ''}|${V.mode}|${V.disp}|${V.apKind}`; if (k !== V.sbKey) { V.sbKey = k; syncShapeBar(); } }
 async function addTextAt(pt) {
   const w = s2w(pt.x, pt.y);
   const s = await promptDlg('글자 메모', '도면에 적을 내용 (예: 균열, 누수, 마감 두께 30)');
@@ -2755,7 +2802,7 @@ function buildToolbar() {
   for (const col of PEN_COLORS) pc.append(h('button', { class: 'sw', type: 'button', style: { background: col }, 'data-c': col, 'aria-label': '펜 색', onclick: () => { V.opts.penColor = col; saveOpts(); syncTools(); } }));
   $('#sheetSel').onchange = e => openSheet(e.target.value);
   $('#sheetPrev').onclick = () => stepSheet(-1); $('#sheetNext').onclick = () => stepSheet(1);
-  $('#dispSel').onchange = e => { V.disp = e.target.value; updateDisp(); requestRender(false); if (V.disp !== 'field') toast(`${ITEM[V.disp].label} 위치만 항목별 번호로 보여줍니다. 이 상태에서 새로 찍는 위치는 ${ITEM[V.disp].label} 항목이 켜집니다.`, { ms: 4200 }); };
+  $('#dispSel').onchange = e => { V.disp = e.target.value; if (V.disp !== 'field') { V.opts.shapeItM = V.disp; saveOpts(); } if (V.sel && V.sel.type === 'g') V.sel = null; updateDisp(); requestRender(false); if (V.disp !== 'field') toast(`${ITEM[V.disp].label} 위치만 항목별 번호로 보여줍니다. 이 상태에서 새로 찍는 위치는 ${ITEM[V.disp].label} 항목이 켜집니다.`, { ms: 4200 }); };
   $('#counter').onclick = editCounters;
   syncTools(); updateUndoBtns();
 }
@@ -3979,6 +4026,7 @@ function syncApBar() {
 }
 function setApKind(k) {
   V.apKind = k; lsSet('apKind', k);
+  V.opts.shapeItAp = k; saveOpts();   // 새 도형 항목도 따라감 (결함 → 균열, 중량물, 조적벽 → 조적조)
   if (V.tool !== 'arrow') setTool('arrow');
   syncApUI(); requestRender(false);
   if (k === 'wall') toast(`벽을 따라 처음 점에서 끝점까지 그으면 직선${V.wallSnap ? '(수평·수직·45°)' : '(그은 방향 그대로)'}으로 그려집니다. 끝점은 다른 벽 끝에 붙습니다. 벽을 톡 누르면 상세창`, { ms: 4200 });
@@ -5292,7 +5340,7 @@ function renderExport() {
       ck('sketch', '배근 스케치 그림'),
       ck('report', '결과 보고서 (HTML)', 'PC 브라우저에서 열어 인쇄하거나 PDF로 저장'),
       ck('mono', '조사위치도 그림 도면 흑백', '보고서·PNG 그림의 도면은 흑백, 위치 표시(화살표·번호)만 빨간색. DXF는 원래 색 그대로'),
-      ck('ap', '외관조사', `결함 및 외관·조적조·중량물 위치도, 결과표, 사진대지, 체크리스트, 보고서 문안 (결함 ${apItems(p, 'defect').length} · 중량물 ${apItems(p, 'heavy').length} · 조적벽 ${p.sheets.reduce((a, s) => a + (s.walls || []).length, 0)})`)));
+      ck('ap', '외관조사', `결함 및 외관·조적조·중량물 위치도(지장물 도형이 있으면 지장물 위치도도), 결과표, 사진대지, 체크리스트, 보고서 문안 (결함 ${apItems(p, 'defect').length} · 중량물 ${apItems(p, 'heavy').length} · 조적벽 ${p.sheets.reduce((a, s) => a + (s.walls || []).length, 0)}${apObstacleCount(p) ? ` · 지장물 ${apObstacleCount(p)}` : ''})`)));
   const uncal = p.sheets.filter(s => !isCalibrated(s));
   const prog = h('div', { class: 'progress', hidden: true }, h('div')); const msg = h('small', { id: 'expMsg' });
   const go = h('button', { class: 'btn pri', type: 'button', style: { minHeight: '48px', fontSize: '16px' } }, 'ZIP 만들기');
@@ -5315,7 +5363,7 @@ async function renderSheetCanvas(sheet, src, disp, numMap, o = {}) {
   const r = await renderBaseCanvas(sheet, src, o), { c, view } = r, s = view.s;
   const prefix = disp === 'field' ? '' : (S.proj.settings.itemPrefix[disp] || '');
   const R = markerRW(sheet, src) * s;
-  drawMarkups(c, sheet, view, { R, lw: Math.max(0.8, R * 0.1), penW: Math.max(0.8, R * 0.13), disp, numMap, labels: o.labels, badges: false, prefixOf, prefix, memo: disp === 'field' });
+  drawMarkups(c, sheet, view, { R, lw: Math.max(0.8, R * 0.1), penW: Math.max(0.8, R * 0.13), disp, numMap, labels: o.labels, badges: false, prefixOf, prefix });   // 현장번호: 펜 메모·글자·도형 전부 / 항목별: 그 항목 도형만
   return r;
 }
 /** 위치도 바탕: 도면만 그린 캔버스 (흑백 옵션) */
@@ -5386,11 +5434,13 @@ function sheetDXF(sheet, src, disp, numMap, o) {
     E.poly('SV-FRAME', null, cs.flat(), true);
   }
   if (o.ap) { apDXFMarks(E, layers, sheet, o.ap, T, R, ext); return dxfDocument(E, layers, ext, R / 8); }
-  if (disp === 'field' && o.memo !== false) {
-    for (const st of sheet.strokes) { const pts = []; for (let i = 0; i < st.pts.length; i += 2) pts.push(...T(st.pts[i], st.pts[i + 1])); if (pts.length >= 4) E.poly('SV-MEMO', colOf(st.color), pts, false); }
-    for (const t of sheet.texts) { const [x, y] = T(t.x, t.y); E.text('SV-TEXT', colOf(t.color), x, y, R, t.s); }
-    // 도형: 외곽 폴리선 + 빗금(45° 선, 간격 = 번호 원 반지름 × 0.55 · CAD 좌표에서 계산)
-    for (const g of (sheet.shapes || []).filter(q => shapeIn(q, 'm'))) {
+  if (o.memo !== false) {
+    if (disp === 'field') {
+      for (const st of sheet.strokes) { const pts = []; for (let i = 0; i < st.pts.length; i += 2) pts.push(...T(st.pts[i], st.pts[i + 1])); if (pts.length >= 4) E.poly('SV-MEMO', colOf(st.color), pts, false); }
+      for (const t of sheet.texts) { const [x, y] = T(t.x, t.y); E.text('SV-TEXT', colOf(t.color), x, y, R, t.s); }
+    }
+    // 도형: 외곽 폴리선 + 빗금(45° 선, 간격 = 번호 원 반지름 × 0.55 · CAD 좌표에서 계산). 현장번호 = 전부, 항목별 = 그 항목 도형만
+    for (const g of shapesFor(sheet, 'm', disp === 'field' ? null : disp)) {
       const poly = shapePoly(g).map(([x, y]) => T(x, y)), col = colOf(g.color);
       E.poly('SV-SHAPE', col, poly.flat(), true);
       if (g.hatch) for (const q of hatchSegs(poly, R * 0.55, [Math.SQRT1_2, Math.SQRT1_2])) E.line('SV-HATCH', col, q[0], q[1], q[2], q[3]);
@@ -5481,15 +5531,15 @@ function reportHTML(ctx) {
   @media print{.noprint{display:none}h2{break-before:page}h2.first{break-before:auto}}
   ${AP_REPORT_CSS}
   </style></head><body>`;
-  out += `<h1>${esc(p.name)} – 현장조사 결과</h1><table class="meta"><tr><td>건물·현장</td><td>${esc(p.site)}</td></tr><tr><td>조사일</td><td>${esc(p.date)}</td></tr><tr><td>조사자</td><td>${esc(p.surveyor)}</td></tr><tr><td>조사위치</td><td>${allMarkers().length}곳 (${ITEMS.map(it => `${it.label} ${ctx.maps[it.k].size}`).join(', ')})</td></tr>${p.settings.exp.ap && apHasData(p) ? `<tr><td>외관조사</td><td>결함 ${apItems(p, 'defect').length}개소 · 중량물 ${apItems(p, 'heavy').length}개소 · 조적벽 ${p.sheets.reduce((a, s) => a + (s.walls || []).length, 0)}개</td></tr>` : ''}</table>`;
+  out += `<h1>${esc(p.name)} – 현장조사 결과</h1><table class="meta"><tr><td>건물·현장</td><td>${esc(p.site)}</td></tr><tr><td>조사일</td><td>${esc(p.date)}</td></tr><tr><td>조사자</td><td>${esc(p.surveyor)}</td></tr><tr><td>조사위치</td><td>${allMarkers().length}곳 (${ITEMS.map(it => `${it.label} ${ctx.maps[it.k].size}`).join(', ')})</td></tr>${p.settings.exp.ap && apHasData(p) ? `<tr><td>외관조사</td><td>결함 ${apItems(p, 'defect').length}개소 · 중량물 ${apItems(p, 'heavy').length}개소 · 조적벽 ${p.sheets.reduce((a, s) => a + (s.walls || []).length, 0)}개${apObstacleCount(p) ? ` · 지장물 ${apObstacleCount(p)}곳` : ''}</td></tr>` : ''}</table>`;
   out += `<p class="noprint" style="color:#666">브라우저 인쇄(Ctrl+P)로 PDF 저장할 수 있습니다. 그림 파일은 같은 폴더의 ‘조사위치도’, ‘보고서그림’에 있습니다.</p>`;
   let first = true;
   for (const d of ctx.disps) {
     const figs = ctx.figs.filter(f => f.disp === d); if (!figs.length) continue;
     out += `<h2 class="${first ? 'first' : ''}">${esc(dispLabel(d))} 조사위치도</h2>`; first = false;
     for (const f of figs) out += `<div class="fig"><img src="${enc(f.path)}" alt=""><p>${esc(f.sheet.name)} – ${esc(dispLabel(d))} 조사위치도</p></div>`;
-    if (d !== 'field') {
-      const rows = allMarkers().filter(([, m]) => m.items[d]).sort((a, b) => ctx.maps[d].get(a[1].id) - ctx.maps[d].get(b[1].id));
+    const rows = d === 'field' ? [] : allMarkers().filter(([, m]) => m.items[d]).sort((a, b) => ctx.maps[d].get(a[1].id) - ctx.maps[d].get(b[1].id));
+    if (rows.length) {   // 도형만 있는 항목은 그림만
       const pre = p.settings.itemPrefix[d] || '';
       out += `<table><tr><th>번호</th><th>도면</th><th>현장번호</th><th>부재</th><th>규격</th><th>${d === 'scan' ? '배근 / 탐사번호' : d === 'hammer' ? '측정번호' : '배근·메모'}</th></tr>`;
       for (const [s, m] of rows) {
@@ -5540,8 +5590,8 @@ async function buildExport(progress) {
     let fieldCanvas = null;
     for (const d of disps) {
       tick(`${s.name} · ${dispLabel(d)} 위치도`);
-      if (d !== 'field' && !markersFor(s, d).length) continue;
-      if (d === 'field' && !s.markers.length && !s.strokes.length && !(s.shapes || []).some(g => shapeIn(g, 'm'))) continue;
+      if (d !== 'field' && !markersFor(s, d).length && !shapesFor(s, 'm', d).length) continue;   // 그 항목 위치도 없으면 안 만듦 (도형만 있어도 만듦)
+      if (d === 'field' && !s.markers.length && !s.strokes.length && !shapesFor(s, 'm').length) continue;
       const base = `조사위치도/${dispLabel(d)}/${sheetDir(s, si)}_${dispLabel(d)}`;
       if (ex.dxf) {
         root.file(uniq(base + '.dxf'), sheetDXF(s, src, d, maps[d], { labels: ex.labels, base: ex.base }));
@@ -5655,10 +5705,22 @@ async function buildExport(progress) {
 }
 
 /* ================= 외관조사 내보내기 · 보고서 문안 ================= */
-const AP_FIG = { defect: '결함및외관', wall: '조적조', heavy: '중량물' };
-const AP_FIG_TITLE = { defect: '결함 및 외관 조사위치도', wall: '조적조 조사위치도', heavy: '중량물 조사위치도' };
-const AP_DXF_COL = { defect: 1, heavy: 6, '0.5B': 3, '1.0B': 1, '1.5B': 5 };
-function apHas(s, only) { return only === 'wall' ? (s.walls || []).length > 0 : (s.ap || []).some(a => a.kind === only) || (only === 'heavy' && apShapes(s).length > 0); }
+const AP_FIG = { defect: '결함및외관', wall: '조적조', heavy: '중량물', obstacle: '지장물' };
+const AP_FIG_TITLE = { defect: '결함 및 외관 조사위치도', wall: '조적조 조사위치도', heavy: '중량물 조사위치도', obstacle: '지장물 조사위치도' };
+const AP_DXF_COL = { defect: 1, heavy: 6, obstacle: 4, '0.5B': 3, '1.0B': 1, '1.5B': 5 };
+/** 위치도별로 그 항목으로 고른 도형의 범례 이름 */
+const AP_SHAPE_LEGEND = { defect: '균열 범위', wall: '조적조 구역', heavy: '중량물 구역', obstacle: '지장물' };
+/** 도면에 그 위치도에 들어갈 것이 있는지 (지장물 = 지장물 도형이 있을 때만) */
+function apHas(s, only) {
+  if (shapesFor(s, 'ap', only).length) return true;
+  return only === 'wall' ? (s.walls || []).length > 0 : (s.ap || []).some(a => a.kind === only);
+}
+/** 범례 한 줄: 그 항목 도형 (빗금 도형이 있으면 빗금 모양으로) */
+function apShapeLegend(sheet, only) {
+  const L = shapesFor(sheet, 'ap', only); if (!L.length) return null;
+  const g = L.find(q => q.hatch) || L[0];
+  return { text: AP_SHAPE_LEGEND[only] || '구역', hatch: !!g.hatch, color: g.color || '#d1342f' };
+}
 function apHasData(p = S.proj) {
   if (p.sheets.some(s => (s.ap || []).length || (s.walls || []).length || apShapes(s).length)) return true;
   const A = p.ap; if (!A) return false;
@@ -5667,6 +5729,7 @@ function apHasData(p = S.proj) {
   return checklistBlocks(p).some(b => b.o.photos.length || b.o.shots.length || b.o.unit || b.o.joint);
 }
 const thickSort = (a, b) => parseFloat(b) - parseFloat(a);
+const apObstacleCount = (p = S.proj) => p.sheets.reduce((a, s) => a + shapesFor(s, 'ap', 'obstacle').length, 0);
 
 /* 위치도 그림 (PNG) */
 async function renderApCanvas(sheet, src, only, o = {}) {
@@ -5677,17 +5740,17 @@ async function renderApCanvas(sheet, src, only, o = {}) {
   return r;
 }
 function apLegendRows(sheet, only) {
+  const rows = apLegendRows0(sheet, only), sh = apShapeLegend(sheet, only);
+  if (sh) rows.push({ text: sh.text, icon: (c, x, y, w, fs) => drawShape(c, { k: 'rect', x0: x + w * 0.15, x1: x + w * 0.85, y0: y - fs * 0.45, y1: y + fs * 0.45, hatch: sh.hatch, color: sh.color }, { s: 1, tx: 0, ty: 0 }, { R: fs * 0.5, penW: Math.max(1, fs * 0.1) }, false) });
+  return rows;
+}
+function apLegendRows0(sheet, only) {
   const red = AP_KINDS.defect.color;
-  if (only === 'defect') return [
+  if (only === 'defect') return apOfKind(sheet, 'defect').length ? [
     { text: '결함 위치 (화살표 방향)', icon: (c, x, y, w, fs) => { const R = fs * 0.52; drawLeader(c, x + R, y, x + w, y, '', R, fs * 0.1, red); drawNumBadge(c, x + R, y, R, '1', red, fs * 0.1, 'circle', '#fff'); } },
     { text: '상부부재 결함', icon: (c, x, y, w, fs) => drawCrossMark(c, x + w / 2, y, fs * 0.42, fs * 0.1, red) },
-  ];
-  if (only === 'heavy') {
-    const rows = apOfKind(sheet, 'heavy').length ? [{ text: '중량물 위치', icon: (c, x, y, w, fs) => drawNumBadge(c, x + w / 2, y, fs * 0.52, '1', AP_KINDS.heavy.color, fs * 0.1, 'square', '#fff') }] : [];
-    const hz = apShapes(sheet).find(g => g.hatch);   // 빗금 도형 = 중량물 구역
-    if (hz) rows.push({ text: '중량물 구역', icon: (c, x, y, w, fs) => drawShape(c, { k: 'rect', x0: x + w * 0.15, x1: x + w * 0.85, y0: y - fs * 0.45, y1: y + fs * 0.45, hatch: true, color: hz.color }, { s: 1, tx: 0, ty: 0 }, { R: fs * 0.5, penW: Math.max(1, fs * 0.1) }, false) });
-    return rows;
-  }
+  ] : [];
+  if (only === 'heavy') return apOfKind(sheet, 'heavy').length ? [{ text: '중량물 위치', icon: (c, x, y, w, fs) => drawNumBadge(c, x + w / 2, y, fs * 0.52, '1', AP_KINDS.heavy.color, fs * 0.1, 'square', '#fff') }] : [];
   if (only === 'wall') {
     const rows = [...new Set((sheet.walls || []).map(w => w.thick))].sort(thickSort).map(t => ({ text: `${t} 조적벽체`, icon: (c, x, y, w, fs) => { c.save(); c.lineCap = 'butt'; c.strokeStyle = AP_WALL[t] || AP_WALL['1.0B']; c.lineWidth = fs * 0.42; c.beginPath(); c.moveTo(x, y); c.lineTo(x + w, y); c.stroke(); c.restore(); } }));
     const hn = S.proj.ap.masonry.hNote; if (hn) rows.push({ text: hn, icon: () => { } });
@@ -5718,19 +5781,21 @@ function drawApLegend(c, W, H, R, sheet, only) {
 /* 위치도 DXF (sheetDXF에서 o.ap 로 부름) */
 function apDXFMarks(E, layers, sheet, only, T, R, ext) {
   const Hn = R * 0.95, Hl = R * 0.75;
-  if (only === 'wall') {
+  // 외관조사에서 그린 도형 중 이 위치도 항목으로 고른 것 (중량물 구역, 지장물 …)
+  for (const g of shapesFor(sheet, 'ap', only)) {
+    if (!layers.has('AP-SHAPE')) { layers.set('AP-SHAPE', AP_DXF_COL[only] || 6); layers.set('AP-HATCH', AP_DXF_COL[only] || 6); }
+    const poly = shapePoly(g).map(([x, y]) => T(x, y)), c = PEN_ACI[g.color] || 1;
+    E.poly('AP-SHAPE', c, poly.flat(), true);
+    if (g.hatch) for (const q of hatchSegs(poly, R * 0.55, [Math.SQRT1_2, Math.SQRT1_2])) E.line('AP-HATCH', c, q[0], q[1], q[2], q[3]);
+  }
+  if (only === 'obstacle') { /* 지장물: 도형만 */ }
+  else if (only === 'wall') {
     for (const w of sheet.walls || []) {
       const ly = 'AP-WALL-' + w.thick.replace('.', ''); if (!layers.has(ly)) layers.set(ly, AP_DXF_COL[w.thick] || 1);
       const [x1, y1] = T(w.pts[0], w.pts[1]), [x2, y2] = T(w.pts[2], w.pts[3]); E.wpoly(ly, null, [x1, y1, x2, y2], R * 0.42);
     }
   } else {
     const col = AP_DXF_COL[only]; layers.set('AP-NO', col); layers.set('AP-ARROW', col);
-    if (only === 'heavy') for (const g of apShapes(sheet)) {   // 외관조사에서 그린 도형 (중량물 구역)
-      if (!layers.has('AP-SHAPE')) { layers.set('AP-SHAPE', 6); layers.set('AP-HATCH', 6); }
-      const poly = shapePoly(g).map(([x, y]) => T(x, y)), c = PEN_ACI[g.color] || 1;
-      E.poly('AP-SHAPE', c, poly.flat(), true);
-      if (g.hatch) for (const q of hatchSegs(poly, R * 0.55, [Math.SQRT1_2, Math.SQRT1_2])) E.line('AP-HATCH', c, q[0], q[1], q[2], q[3]);
-    }
     for (const a of apOfKind(sheet, only)) {
       let [X, Y] = T(a.x, a.y);
       if (a.tx != null) {
@@ -5751,7 +5816,8 @@ function apDXFMarks(E, layers, sheet, only, T, R, ext) {
     }
   }
   // 범례 (도면 오른쪽 위)
-  const rows = only === 'defect' ? ['→ 결함 위치 (화살표 방향)', '⊗ 상부부재 결함'] : only === 'heavy' ? [...(apOfKind(sheet, 'heavy').length ? ['□ 중량물 위치'] : []), ...(apShapes(sheet).some(g => g.hatch) ? ['▨ 중량물 구역'] : [])] : [...new Set((sheet.walls || []).map(w => w.thick))].sort(thickSort).map(t => `${t} 조적벽체`).concat(S.proj.ap.masonry.hNote ? [S.proj.ap.masonry.hNote] : []);
+  const rows = only === 'defect' ? (apOfKind(sheet, 'defect').length ? ['→ 결함 위치 (화살표 방향)', '⊗ 상부부재 결함'] : []) : only === 'heavy' ? (apOfKind(sheet, 'heavy').length ? ['□ 중량물 위치'] : []) : only === 'wall' ? [...new Set((sheet.walls || []).map(w => w.thick))].sort(thickSort).map(t => `${t} 조적벽체`).concat(S.proj.ap.masonry.hNote ? [S.proj.ap.masonry.hNote] : []) : [];
+  const sh = apShapeLegend(sheet, only); if (sh) rows.push(`${sh.hatch ? '▨' : '□'} ${sh.text}`);
   if (!rows.length) return;
   layers.set('AP-LEGEND', 7);
   const x0 = ext.x1 - Hl * 16, y0 = ext.y1 - Hl * 2;
@@ -5766,8 +5832,8 @@ function apDXFMarks(E, layers, sheet, only, T, R, ext) {
 
 /* 내보내기 단계들 (buildExport에서 부름) */
 async function apExportFigures(ctx, root, s, si, src, sheetDir, uniq, ex) {
-  for (const only of ['defect', 'wall', 'heavy']) {
-    if (!apHas(s, only)) continue;
+  for (const only of ['defect', 'wall', 'heavy', 'obstacle']) {
+    if (!apHas(s, only)) continue;   // 지장물 위치도는 지장물 도형이 있는 도면만
     const base = `외관조사/조사위치도/${AP_FIG[only]}/${sheetDir(s, si)}_${AP_FIG[only]}`;
     if (ex.dxf) {
       root.file(uniq(base + '.dxf'), sheetDXF(s, src, 'field', null, { ap: only, base: ex.base }));
@@ -5870,7 +5936,8 @@ function apReportHTML(ctx, enc) {
   const drafts = new Map(apDraftTexts(p));
   const draft = k => drafts.has(k) ? `<div class="draft">${esc(drafts.get(k))}</div>` : '';
   // 결함 및 외관
-  const dsheets = p.sheets.filter(s => apHas(s, 'defect'));
+  const dsheets = p.sheets.filter(s => apOfKind(s, 'defect').length);
+  if (!dsheets.length && ctx.apFigs.some(f => f.only === 'defect')) out += `<h2>결함 및 외관 조사</h2>${figs('defect')}`;   // 도형(균열 범위)만 있는 경우
   if (dsheets.length) {
     out += `<h2>결함 및 외관 조사</h2>${figs('defect')}<h3>결함 및 외관 조사결과표</h3><table><tr><th>층구분</th><th>번호</th><th>부재</th><th>결함 유형</th><th>균열 폭 / 길이 및 노후화 면적</th><th>비고</th><th>보수 공법</th></tr>`;
     for (const s of dsheets) { const L = apOfKind(s, 'defect'); L.forEach((a, i) => { out += `<tr>${i === 0 ? `<td rowspan="${L.length}">${esc(floorName(s))}</td>` : ''}<td class="c">${circ(a.no)}</td><td>${esc(a.member)}</td><td>${esc(apDefectText(a))}</td><td class="c">${esc(apSize(a))}</td><td class="c">${apFilled(a) ? (apStruct(a) ? '구조체' : '-') : ''}</td><td></td></tr>`; }); }
@@ -5896,6 +5963,8 @@ function apReportHTML(ctx, enc) {
     out += `</table><table><tr><th style="width:120px">검토항목</th><th>검토 내용</th></tr><tr><td>중량물</td><td>${esc(uniqList(hv.map(([, a]) => a.heavy)).join(', '))} 등</td></tr></table>${draft('중량물')}`;
     out += '<div class="pgrid">' + hv.map(([s, a]) => { const img = apCardImgs(ctx, a.id)[0]; return img ? `<figure><img src="${enc(img)}" alt=""><figcaption>${esc(floorName(s))} ${circ(a.no)} ${esc(apTitle(a))}</figcaption></figure>` : ''; }).join('') + '</div>';
   }
+  // 지장물 (지장물 도형이 있을 때만)
+  if (ctx.apFigs.some(f => f.only === 'obstacle')) out += `<h2>지장물 조사</h2>${figs('obstacle')}`;
   // 마감재
   const fr = Object.entries(A.finish).filter(([, f]) => f.base.length || f.fin.length || f.baseX || f.finX || f.state || f.photos.length || f.shots.length);
   if (fr.length) {
