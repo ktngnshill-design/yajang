@@ -691,7 +691,7 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
 
 </script>
 <script>
-const APP_VERSION = '2026.10.14-1133';
+const APP_VERSION = '2026.10.14-1145';
 'use strict';
 /* ================= 기본 유틸 ================= */
 const $ = (s, r = document) => r.querySelector(s);
@@ -2813,7 +2813,7 @@ function openMoreMenu(ev) {
     it('도면 색', { dark: '진하게', mono: '흑백', orig: '원래 색' }[o.colorMode], () => { o.colorMode = { dark: 'mono', mono: 'orig', orig: 'dark' }[o.colorMode]; saveOpts(); requestRender(); }),
     it('부재 라벨 표시', o.labels ? '켜짐' : '꺼짐', () => { o.labels = !o.labels; saveOpts(); requestRender(false); }),
     it('손가락으로도 그리기', o.finger ? '켜짐' : '꺼짐', () => { o.finger = !o.finger; saveOpts(); toast(o.finger ? '손가락 한 개로 그리고, 두 손가락으로 이동·확대합니다' : 'S펜으로 그리고, 손가락으로 이동·확대합니다'); }),
-    typeof ORI_TABLET === 'function' && ORI_TABLET() ? it('가로 화면 고정', oriStatusText(), () => { ORI.ok = false; lockLandscapeByTouch(); setTimeout(() => toast('가로 화면 고정: ' + oriStatusText(), { ms: 4000 }), 700); }) : null,
+    typeof ORI_MENU === 'function' && ORI_MENU() ? it('가로 화면 고정', oriStatusText(), () => { ORI.ok = false; lockLandscapeByTouch(true); setTimeout(() => toast('가로 화면 고정: ' + oriStatusText(), { ms: 4000 }), 700); }) : null,
     document.fullscreenEnabled && !IS_APP_WINDOW() ? it('전체 화면', document.fullscreenElement ? '켜짐' : '꺼짐', () => { (document.fullscreenElement ? document.exitFullscreen() : document.documentElement.requestFullscreen()).catch(() => toast('이 화면에서는 전체 화면을 쓸 수 없습니다')); }) : null,
   );
   document.body.append(menu);
@@ -6013,22 +6013,27 @@ const IS_APP_WINDOW = () => ['fullscreen', 'standalone', 'minimal-ui'].some(m =>
  * 1) 바로 고정 요청 → 2) 크롬이 '전체 화면이어야 한다'며 거절하면, 화면을 처음 누를 때 전체 화면으로 바꾸고 다시 고정
  * 카메라·파일 선택 등으로 전체 화면이 풀리면 다음 터치 때 다시 잡음. 상태는 더보기 › 가로 화면 고정 에서 확인 */
 const ORI = { ok: false, err: '', tried: false };
-const ORI_TABLET = () => /Android/i.test(navigator.userAgent) && !!(screen.orientation && screen.orientation.lock);
+/** 돌려 쓰는 태블릿인가: 안드로이드 – 갤럭시탭 크롬의 '데스크톱 사이트' 모드는 자신을 리눅스 PC(X11; Linux)라고 알리므로 그것도 터치가 있으면 태블릿으로 봄 */
+const IS_TABLETISH = () => { const ua = navigator.userAgent || ''; return /Android/i.test(ua) || /android/i.test((navigator.userAgentData && navigator.userAgentData.platform) || '') || (/Linux/i.test(ua) && !/CrOS/i.test(ua) && navigator.maxTouchPoints > 1); };
+const ORI_TABLET = () => IS_TABLETISH() && !!(screen.orientation && screen.orientation.lock);
+const ORI_MENU = () => !!(screen.orientation && screen.orientation.lock) && navigator.maxTouchPoints > 0;   // 메뉴는 터치 기기면 늘 보임 (안 될 때 사유 확인용)
 const isLandscapeLock = () => !!(screen.orientation && /landscape/.test(screen.orientation.type || ''));
-function lockLandscape() {
-  if (!ORI_TABLET()) return Promise.resolve(false);
+function lockLandscape(force) {
+  if (!ORI_TABLET() && !force) return Promise.resolve(false);
   ORI.tried = true;
   return screen.orientation.lock('landscape').then(() => { ORI.ok = true; ORI.err = ''; return true; }, e => { ORI.ok = false; ORI.err = (e && (e.name + ': ' + e.message)) || String(e); return false; });
 }
 /** 사용자가 화면을 누른 순간(전체 화면 요청이 허용되는 때)에 고정 */
-function lockLandscapeByTouch() {
-  if (!ORI_TABLET() || ORI.ok) return;
+function lockLandscapeByTouch(force) {
+  if ((!ORI_TABLET() && !force) || ORI.ok) return;
+  const go = () => lockLandscape(true);
   if (!document.fullscreenElement && document.documentElement.requestFullscreen) {
-    document.documentElement.requestFullscreen({ navigationUI: 'hide' }).then(lockLandscape, e => { ORI.err = '전체 화면 전환 실패 – ' + ((e && e.message) || e); });
-  } else lockLandscape();
+    document.documentElement.requestFullscreen({ navigationUI: 'hide' }).then(go, e => { ORI.err = '전체 화면 전환 실패 – ' + ((e && e.message) || e); });
+  } else go();
 }
 function oriStatusText() {
-  if (!ORI_TABLET()) return '이 기기는 해당 없음';
+  if (!screen.orientation || !screen.orientation.lock) return '이 브라우저는 지원 안 함';
+  if (!ORI_TABLET() && !ORI.tried) return '태블릿으로 인식 안 됨 · 눌러서 적용';
   if (ORI.ok) return '적용됨';
   return ORI.err ? '안 됨 · ' + ORI.err.replace(/^\w+Error: /, '') : '화면을 누르면 적용';
 }
