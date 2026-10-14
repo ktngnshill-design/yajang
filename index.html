@@ -691,7 +691,7 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
 
 </script>
 <script>
-const APP_VERSION = '2026.10.14-1114';
+const APP_VERSION = '2026.10.14-1125';
 'use strict';
 /* ================= 기본 유틸 ================= */
 const $ = (s, r = document) => r.querySelector(s);
@@ -6008,8 +6008,18 @@ function apDraftTexts(p = S.proj) {
  * GitHub Pages 등 HTTPS 주소에서 열 때만 동작 (파일로 연 HTML·웹 미리보기에서는 버전 표시만) */
 const IS_PWA_BUILD = !!document.querySelector('link[rel="manifest"]');
 const IS_APP_WINDOW = () => ['fullscreen', 'standalone', 'minimal-ui'].some(m => matchMedia(`(display-mode: ${m})`).matches);
+/** 가로 화면 고정: 설치한 앱(전체화면 창)에서는 늘, 크롬에서 연 파일은 '전체 화면'일 때 (태블릿을 돌려도 가로 유지) */
+function lockLandscape() {
+  try {
+    if (!screen.orientation || !screen.orientation.lock) return;
+    if (IS_APP_WINDOW() || document.fullscreenElement) screen.orientation.lock('landscape').catch(() => { /* 지원 안 하는 기기·PC는 그대로 */ });
+  } catch (e) { /* */ }
+}
 function initPWA() {
   const v = $('#appVer'); if (v) v.textContent = '버전 ' + APP_VERSION;
+  lockLandscape();
+  document.addEventListener('fullscreenchange', lockLandscape);
+  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') lockLandscape(); });   // 카메라·파일 선택에서 돌아왔을 때 다시
   if (!IS_PWA_BUILD || !('serviceWorker' in navigator) || !window.isSecureContext) return;
   try { if (navigator.storage && navigator.storage.persist) navigator.storage.persist(); } catch (e) { /* 저장공간 자동 삭제 방지 요청 */ }
   const hadController = !!navigator.serviceWorker.controller;
