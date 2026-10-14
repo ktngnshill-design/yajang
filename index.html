@@ -705,7 +705,7 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
 
 </script>
 <script>
-const APP_VERSION = '2026.10.14-1619';
+const APP_VERSION = '2026.10.14-1627';
 'use strict';
 /* ================= 기본 유틸 ================= */
 const $ = (s, r = document) => r.querySelector(s);
@@ -2235,12 +2235,14 @@ const V = {
   stage: null, bg: null, hi: null, fg: null, bgx: null, hix: null, fgx: null, W: 0, H: 0, dpr: 1,
   sheet: null, src: null, view: { s: 1, tx: 0, ty: 0 }, bgView: null, hiView: null, hiTask: null, hiTimer: 0,
   tool: 'arrow', sel: null, disp: 'field', numMap: null, mode: 'member', apKind: lsGet('apKind') || 'defect', wallThick: lsGet('wallThick') || '1.0B', wallSnap: lsGet('wallSnap') !== '0', dispMember: 'field',
-  opts: { fade: false, colorMode: 'dark', finger: false, labels: true, size: 1, penColor: '#d1342f', markStyle: 'arrow', shapeKind: 'rect', shapeHatch: true },
+  opts: { fade: false, colorMode: 'mono', finger: false, labels: true, size: 1, penColor: '#d1342f', markStyle: 'arrow', shapeKind: 'rect', shapeHatch: true },
   pointers: new Map(), gesture: null, drawPid: null, drawType: null, down: null, drag: null, stroke: null,
   lastPen: 0, gestureActive: false, raf: 0, bgDirty: true, panelM: null, calib: null, views: new Map(), wake: null,
 };
 try { Object.assign(V.opts, JSON.parse(lsGet('viewOpts') || '{}')); } catch (e) { /* 무시 */ }
 const saveOpts = () => lsSet('viewOpts', JSON.stringify(V.opts));
+// 도면 색 기본값을 흑백으로 바꿈 (2026.10): 예전 기본값(진하게)으로 저장돼 있던 태블릿도 한 번만 흑백으로. 직접 고른 '원래 색'은 그대로
+if (!V.opts.cmMono) { if (V.opts.colorMode === 'dark') V.opts.colorMode = 'mono'; V.opts.cmMono = 1; saveOpts(); }
 const w2s = (x, y) => [x * V.view.s + V.view.tx, y * V.view.s + V.view.ty];
 const s2w = (x, y) => [(x - V.view.tx) / V.view.s, (y - V.view.ty) / V.view.s];
 /** 번호 원 반지름(도면 단위) = 도면 대각선 × 0.75% × 프로젝트 배율 → 화면·PNG·DXF 모두 같은 비율 */
