@@ -5,7 +5,7 @@
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="icon" href="icon-192.png">
 <link rel="apple-touch-icon" href="icon-192.png">
-<title>현장조사 야장</title>
+<title>Smart Field</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;700&display=swap">
@@ -450,7 +450,7 @@ input.in.np-f.np-on { border-color: #f08a00; box-shadow: 0 0 0 2px rgba(240,138,
 </head><body>
 <div id="app">
   <nav id="nav" aria-label="작업 순서">
-    <div class="brand"><b>현장조사 야장</b><span>내진성능평가 현장조사</span></div>
+    <div class="brand"><b>Smart Field</b><span>내진성능평가 현장조사</span></div>
     <button class="nav-i" data-view="projects"><i>1</i><span><em>프로젝트</em><small>현장 정보·번호 설정</small></span></button>
     <button class="nav-i" data-view="sheets"><i>2</i><span><em>도면</em><small>PDF·이미지·DXF 불러오기</small></span></button>
     <button class="nav-i" data-view="survey"><i>3</i><span><em>현장조사</em><small>부재 조사위치 표시</small></span></button>
@@ -705,7 +705,7 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
 
 </script>
 <script>
-const APP_VERSION = '2026.10.14-1604';
+const APP_VERSION = '2026.10.14-1619';
 'use strict';
 /* ================= 기본 유틸 ================= */
 const $ = (s, r = document) => r.querySelector(s);
@@ -1851,7 +1851,7 @@ function freeSrc(v) {
 }
 const CAD_FONT = '"Noto Sans KR", "Malgun Gothic", sans-serif';
 function pdfReady() { if (!window.pdfjsLib) throw new Error('PDF 엔진을 불러오지 못했습니다. 인터넷에 연결된 상태에서 앱을 다시 여세요.'); return window.pdfjsLib; }
-/* PDF worker: 파일 안에 넣어 둔 것(오프라인용 현장조사야장.html)이 있으면 그것, 없으면 인터넷(cdnjs) */
+/* PDF worker: 파일 안에 넣어 둔 것(오프라인용 SmartField.html)이 있으면 그것, 없으면 인터넷(cdnjs) */
 const PDF_WORKER_TEXT = (() => { const el = document.getElementById('pdfWorkerSrc'); return el ? el.textContent : null; })();
 const PDF_WORKER_URL = PDF_WORKER_TEXT ? URL.createObjectURL(new Blob([PDF_WORKER_TEXT], { type: 'text/javascript' })) : 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
 let PDF_WORKER_P = null;
@@ -4675,7 +4675,7 @@ async function saveProjectZip(withLinked) {
   zip.file('project.json', JSON.stringify({ format: 'hill-yajang', version: 1, saved: Date.now(), project: proj, blobs: meta }));
   zipStoreMedia(zip);
   const blob = await zip.generateAsync({ type: 'blob', compression: 'DEFLATE', compressionOptions: { level: 3 } });
-  await saveFile(`${safeName(p.name)}_야장_${today()}.zip`, blob);
+  await saveFile(`${safeName(p.name)}_SmartField_${today()}.zip`, blob);
 }
 async function importProjectZip() {
   const [f] = await pickFiles({ accept: '.zip', multiple: false }); if (!f) return;

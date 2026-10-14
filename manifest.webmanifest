@@ -1,7 +1,7 @@
 {
-  "name": "현장조사 야장",
-  "short_name": "현장조사 야장",
-  "description": "내진성능평가 현장조사 디지털 야장",
+  "name": "Smart Field",
+  "short_name": "Smart Field",
+  "description": "Smart Field – 내진성능평가 현장조사 디지털 야장",
   "id": "./",
   "start_url": "./",
   "scope": "./",
