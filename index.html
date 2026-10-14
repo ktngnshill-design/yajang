@@ -691,7 +691,7 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
 
 </script>
 <script>
-const APP_VERSION = '2026.10.14-1125';
+const APP_VERSION = '2026.10.14-1133';
 'use strict';
 /* ================= 기본 유틸 ================= */
 const $ = (s, r = document) => r.querySelector(s);
@@ -2813,6 +2813,7 @@ function openMoreMenu(ev) {
     it('도면 색', { dark: '진하게', mono: '흑백', orig: '원래 색' }[o.colorMode], () => { o.colorMode = { dark: 'mono', mono: 'orig', orig: 'dark' }[o.colorMode]; saveOpts(); requestRender(); }),
     it('부재 라벨 표시', o.labels ? '켜짐' : '꺼짐', () => { o.labels = !o.labels; saveOpts(); requestRender(false); }),
     it('손가락으로도 그리기', o.finger ? '켜짐' : '꺼짐', () => { o.finger = !o.finger; saveOpts(); toast(o.finger ? '손가락 한 개로 그리고, 두 손가락으로 이동·확대합니다' : 'S펜으로 그리고, 손가락으로 이동·확대합니다'); }),
+    typeof ORI_TABLET === 'function' && ORI_TABLET() ? it('가로 화면 고정', oriStatusText(), () => { ORI.ok = false; lockLandscapeByTouch(); setTimeout(() => toast('가로 화면 고정: ' + oriStatusText(), { ms: 4000 }), 700); }) : null,
     document.fullscreenEnabled && !IS_APP_WINDOW() ? it('전체 화면', document.fullscreenElement ? '켜짐' : '꺼짐', () => { (document.fullscreenElement ? document.exitFullscreen() : document.documentElement.requestFullscreen()).catch(() => toast('이 화면에서는 전체 화면을 쓸 수 없습니다')); }) : null,
   );
   document.body.append(menu);
@@ -6008,18 +6009,35 @@ function apDraftTexts(p = S.proj) {
  * GitHub Pages 등 HTTPS 주소에서 열 때만 동작 (파일로 연 HTML·웹 미리보기에서는 버전 표시만) */
 const IS_PWA_BUILD = !!document.querySelector('link[rel="manifest"]');
 const IS_APP_WINDOW = () => ['fullscreen', 'standalone', 'minimal-ui'].some(m => matchMedia(`(display-mode: ${m})`).matches);
-/** 가로 화면 고정: 설치한 앱(전체화면 창)에서는 늘, 크롬에서 연 파일은 '전체 화면'일 때 (태블릿을 돌려도 가로 유지) */
+/* ================= 가로 화면 고정 (태블릿을 돌려도 가로 유지) =================
+ * 1) 바로 고정 요청 → 2) 크롬이 '전체 화면이어야 한다'며 거절하면, 화면을 처음 누를 때 전체 화면으로 바꾸고 다시 고정
+ * 카메라·파일 선택 등으로 전체 화면이 풀리면 다음 터치 때 다시 잡음. 상태는 더보기 › 가로 화면 고정 에서 확인 */
+const ORI = { ok: false, err: '', tried: false };
+const ORI_TABLET = () => /Android/i.test(navigator.userAgent) && !!(screen.orientation && screen.orientation.lock);
+const isLandscapeLock = () => !!(screen.orientation && /landscape/.test(screen.orientation.type || ''));
 function lockLandscape() {
-  try {
-    if (!screen.orientation || !screen.orientation.lock) return;
-    if (IS_APP_WINDOW() || document.fullscreenElement) screen.orientation.lock('landscape').catch(() => { /* 지원 안 하는 기기·PC는 그대로 */ });
-  } catch (e) { /* */ }
+  if (!ORI_TABLET()) return Promise.resolve(false);
+  ORI.tried = true;
+  return screen.orientation.lock('landscape').then(() => { ORI.ok = true; ORI.err = ''; return true; }, e => { ORI.ok = false; ORI.err = (e && (e.name + ': ' + e.message)) || String(e); return false; });
+}
+/** 사용자가 화면을 누른 순간(전체 화면 요청이 허용되는 때)에 고정 */
+function lockLandscapeByTouch() {
+  if (!ORI_TABLET() || ORI.ok) return;
+  if (!document.fullscreenElement && document.documentElement.requestFullscreen) {
+    document.documentElement.requestFullscreen({ navigationUI: 'hide' }).then(lockLandscape, e => { ORI.err = '전체 화면 전환 실패 – ' + ((e && e.message) || e); });
+  } else lockLandscape();
+}
+function oriStatusText() {
+  if (!ORI_TABLET()) return '이 기기는 해당 없음';
+  if (ORI.ok) return '적용됨';
+  return ORI.err ? '안 됨 · ' + ORI.err.replace(/^\w+Error: /, '') : '화면을 누르면 적용';
 }
 function initPWA() {
   const v = $('#appVer'); if (v) v.textContent = '버전 ' + APP_VERSION;
   lockLandscape();
-  document.addEventListener('fullscreenchange', lockLandscape);
-  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') lockLandscape(); });   // 카메라·파일 선택에서 돌아왔을 때 다시
+  document.addEventListener('pointerdown', e => { if (e.pointerType !== 'mouse') lockLandscapeByTouch(); }, true);
+  document.addEventListener('fullscreenchange', () => { if (!document.fullscreenElement) ORI.ok = false; else lockLandscape(); });   // 전체 화면이 풀리면 고정도 풀림 → 다음 터치 때 다시
+  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') { ORI.ok = false; lockLandscape(); } });   // 카메라·파일 선택에서 돌아왔을 때
   if (!IS_PWA_BUILD || !('serviceWorker' in navigator) || !window.isSecureContext) return;
   try { if (navigator.storage && navigator.storage.persist) navigator.storage.persist(); } catch (e) { /* 저장공간 자동 삭제 방지 요청 */ }
   const hadController = !!navigator.serviceWorker.controller;
