@@ -445,6 +445,11 @@ input.in.np-f { caret-color: #f08a00; }
 input.in.np-f.np-on { border-color: #f08a00; box-shadow: 0 0 0 2px rgba(240,138,0,.3); background: #fffaf2; }
 .dlg-np { padding: 0 18px 4px; display: flex; justify-content: flex-end; }
 .dlg-np .np { width: min(440px, 100%); border: 1px solid var(--line); border-radius: 10px; box-shadow: none; }
+/* 저장 문제 경고 띠 (화면 위 가운데, 해결될 때까지 계속 보임) */
+#saveAlert { position: fixed; top: 74px; left: 50%; transform: translateX(-50%); z-index: 60; max-width: calc(100% - 32px); padding: 10px 18px; border: 0; border-radius: 12px; background: #c62828; color: #fff; font: inherit; font-size: 15px; font-weight: 700; box-shadow: 0 6px 18px rgba(120,0,0,.35); cursor: pointer; animation: saveAlertPulse 1.6s ease-in-out infinite; }
+@keyframes saveAlertPulse { 50% { box-shadow: 0 6px 22px rgba(198,40,40,.7); } }
+/* 당겨서 새로고침 막기 (입력 중 실수로 새로고침 방지) */
+html, body { overscroll-behavior: none; }
 
 </style>
 </head><body>
@@ -705,7 +710,7 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
 
 </script>
 <script>
-const APP_VERSION = '2026.10.14-1627';
+const APP_VERSION = '2026.10.14-1859';
 'use strict';
 /* ================= 기본 유틸 ================= */
 const $ = (s, r = document) => r.querySelector(s);
@@ -731,7 +736,14 @@ function h(tag, props, ...kids) {
 const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 const pad2 = n => String(n).padStart(2, '0');
-function debounce(fn, ms) { let t; const f = (...a) => { clearTimeout(t); t = setTimeout(() => fn(...a), ms); }; f.flush = (...a) => { clearTimeout(t); return fn(...a); }; return f; }
+/** 마지막 호출 ms 뒤 실행. maxMs를 주면 계속 호출돼도 처음 호출부터 maxMs 안에는 꼭 실행 (쉬지 않고 입력해도 저장되게) */
+function debounce(fn, ms, maxMs) {
+  let t = null, first = 0;
+  const run = (...a) => { clearTimeout(t); t = null; first = 0; return fn(...a); };
+  const f = (...a) => { clearTimeout(t); const now = Date.now(); if (!first) first = now; const wait = maxMs ? Math.max(0, Math.min(ms, first + maxMs - now)) : ms; t = setTimeout(() => run(...a), wait); };
+  f.flush = (...a) => run(...a); f.pending = () => t != null; f.cancel = () => { clearTimeout(t); t = null; first = 0; };
+  return f;
+}
 function today() { const d = new Date(); return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`; }
 function fmtTime(ts) { if (!ts) return ''; const d = new Date(ts); return `${d.getMonth() + 1}/${d.getDate()} ${pad2(d.getHours())}:${pad2(d.getMinutes())}`; }
 function esc(s) { return String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])); }
@@ -750,7 +762,7 @@ function toast(msg, opt = {}) {
   $('#toast').append(t);
   setTimeout(() => t.remove(), opt.ms || (opt.action ? 6000 : 2600));
 }
-function dialog({ title, body, buttons, wide, noFocus, foot }) {
+function dialog({ title, body, buttons, wide, noFocus, foot, noBackdrop }) {
   return new Promise(res => {
     const back = h('div', { class: 'dlg-back' });
     const close = v => { back.remove(); res(v); };
@@ -764,7 +776,8 @@ function dialog({ title, body, buttons, wide, noFocus, foot }) {
     const box = h('div', { class: 'dlg' + (wide ? ' wide' : ''), role: 'dialog', 'aria-modal': 'true' },
       h('h2', null, title), h('div', { class: 'dlg-body' }, body), foot || null, h('div', { class: 'dlg-btns' }, btns));
     back.append(box);
-    back.addEventListener('pointerdown', e => { if (e.target === back) close(null); });
+    // 바깥을 눌러 닫기: 입력칸이 있는 창은 손바닥·펜이 닿아 입력이 날아가지 않게 막음
+    back.addEventListener('pointerdown', e => { if (e.target !== back || noBackdrop) return; if (box.querySelector('input:not([type=checkbox]):not([type=radio]), textarea, select')) return; close(null); });
     $('#dlg-root').append(back);
     const f = noFocus ? null : box.querySelector('input.in, select.in, textarea.in');
     if (f) setTimeout(() => f.focus(), 30);
@@ -785,20 +798,38 @@ function promptDlg(title, label, value = '', opt = {}) {
 /* ================= 저장소 (IndexedDB) ================= */
 const IDB = {
   db: null, mem: null,
+  /** 저장소 열기. 느리면 '여는 중' 화면을 띄우고 기다림 (예전처럼 4초 만에 임시 모드로 넘어가 기록이 안 보이는 일 없게).
+   *  정말 못 열 때만 사용자에게 묻고 임시(메모리) 모드 → 화면 위에 빨간 경고가 계속 보임 */
   async open() {
-    try {
-      this.db = await Promise.race([
-        new Promise((res, rej) => {
-          const r = indexedDB.open('hill-yajang', 1);
-          r.onupgradeneeded = () => { const d = r.result; d.createObjectStore('projects'); d.createObjectStore('blobs'); };
-          r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error); r.onblocked = () => rej(new Error('blocked'));
-        }),
-        sleep(4000).then(() => { throw new Error('timeout'); })
-      ]);
-    } catch (e) {
-      this.mem = { projects: new Map(), blobs: new Map() };
-      setTimeout(() => toast('이 브라우저에서는 자동 저장이 되지 않습니다. 작업 후 꼭 프로젝트 파일로 저장하세요.', { ms: 8000 }), 800);
+    const once = () => new Promise((res, rej) => {
+      let r; try { r = indexedDB.open('hill-yajang', 1); } catch (e) { rej(e); return; }
+      r.onupgradeneeded = () => { const d = r.result; if (!d.objectStoreNames.contains('projects')) d.createObjectStore('projects'); if (!d.objectStoreNames.contains('blobs')) d.createObjectStore('blobs'); };
+      r.onsuccess = () => { const db = r.result; db.onversionchange = () => db.close(); res(db); }; r.onerror = () => rej(r.error || new Error('open failed'));
+      r.onblocked = () => { /* 다른 창이 옛 버전으로 열고 있음 – 닫힐 때까지 기다림 */ };
+    });
+    for (let tries = 0; ; tries++) {
+      let wait = null;
+      const slow = setTimeout(() => { wait = h('div', { class: 'dlg-back', id: 'idbWait' }, h('div', { class: 'dlg' }, h('h2', null, '태블릿 저장소를 여는 중…'), h('p', { style: { margin: 0 } }, '조사 기록을 불러오고 있습니다. 잠시 기다려 주세요.'))); $('#dlg-root').append(wait); }, 1500);
+      try { this.db = await Promise.race([once(), sleep(30000).then(() => { throw new Error('30초 동안 응답 없음'); })]); clearTimeout(slow); if (wait) wait.remove(); return; }
+      catch (e) {
+        clearTimeout(slow); if (wait) wait.remove();
+        const c = await dialog({ title: '태블릿 저장소를 열 수 없습니다', body: h('div', null, h('p', null, '이대로 쓰면 입력한 내용이 저장되지 않습니다. (' + (e && e.message || e) + ')'), h('p', { style: { margin: 0 } }, '앱(크롬)을 완전히 닫았다가 다시 여세요. 기존 기록은 지워지지 않았습니다.')),
+          buttons: [{ label: '저장 안 되는 임시 모드로 계속', value: 'mem' }, { label: '다시 시도', value: 'retry', cls: 'pri' }], noBackdrop: true });
+        if (c === 'retry' && tries < 5) continue;
+        this.mem = { projects: new Map(), blobs: new Map() }; setSaveState('mem'); return;
+      }
     }
+  },
+  /** 프로젝트 저장: 같은 거래 안에서 저장본 번호(rev)를 확인 → 다른 창이 더 최근에 저장했으면 덮어쓰지 않음 */
+  async saveProject(p, base) {
+    if (this.mem) { const cur = this.mem.projects.get(p.id); if ((cur && (cur.rev || 0) > base) || (!cur && base > 0)) return 'conflict'; p.rev = base + 1; this.mem.projects.set(p.id, structuredClone(p)); return 'ok'; }
+    return new Promise((res, rej) => {
+      let out = 'ok', tx;
+      try { tx = this.db.transaction('projects', 'readwrite'); } catch (e) { rej(e); return; }
+      const st = tx.objectStore('projects'), g = st.get(p.id);
+      g.onsuccess = () => { const cur = g.result; if ((cur && (cur.rev || 0) > base) || (!cur && base > 0)) { out = 'conflict'; return; } p.rev = base + 1; st.put(p, p.id); };   // 다른 창이 더 최근에 저장했거나 지웠으면 덮어쓰지 않음
+      tx.oncomplete = () => res(out); tx.onerror = () => rej(tx.error || new Error('저장 오류')); tx.onabort = () => rej(tx.error || new Error('저장 취소됨 (저장공간 부족일 수 있음)'));
+    });
   },
   _req(r) { return new Promise((res, rej) => { r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error); }); },
   async get(store, key) { if (this.mem) return this.mem[store].get(key); return this._req(this.db.transaction(store).objectStore(store).get(key)); },
@@ -960,10 +991,16 @@ function apFilled(a) { return a.kind === 'heavy' ? !!a.heavy : !!(a.member && a.
 const CIRC = '①②③④⑤⑥⑦⑧⑨⑩⑪⑫⑬⑭⑮⑯⑰⑱⑲⑳㉑㉒㉓㉔㉕㉖㉗㉘㉙㉚㉛㉜㉝㉞㉟㊱㊲㊳㊴㊵㊶㊷㊸㊹㊺㊻㊼㊽㊾㊿';
 const circ = n => (n >= 1 && n <= 50 ? [...CIRC][n - 1] : String(n));
 /** 도면 이름에서 층 이름만 (보고서 층구분): '김해 상동 2층 구조평면도' → '2층' */
-function floorName(s) {
+function floorShort(s) {
   const n = (s && s.name) || '';
   const m = n.match(/(지하\s*\d+\s*층|지상\s*\d+\s*층|옥탑\s*\d*\s*층?|옥상\s*층?|PH\s*\d*|RF|B\d+F?|\d+\s*층)/i);
   return m ? m[1].replace(/\s+/g, ' ').trim() : n;
+}
+/** 층구분 이름 (보고서·엑셀). 'A동 1층'·'B동 1층'처럼 줄이면 같아지는 도면이 있으면 도면 이름 전체를 씀 */
+function floorName(s) {
+  const short = floorShort(s), full = (s && s.name) || '';
+  if (S.proj && S.proj.sheets.some(o => o !== s && (o.name || '') !== full && floorShort(o) === short)) return full || short;
+  return short;
 }
 function defaultApProj() {
   const nonst = {}; for (const k of AP_NONST) nonst[k] = { has: '', mat: '', state: '', memo: '', photos: [], shots: [] };
@@ -1014,6 +1051,24 @@ function allPhotoEntries(p = S.proj) {
 /** 태블릿 바로 찍기: 찍은 사진마다 다음 사진번호를 붙여 사진 줄로 (e.shot = 촬영 key) */
 const shotOfEntry = (o, e) => (e && e.shot ? (o.shots || []).find(s => s.key === e.shot) || null : null);
 const looseShots = o => (o.shots || []).filter(s => !(o.photos || []).some(e => e.shot === s.key));
+/** 태블릿 촬영 사진 저장. 저장공간 부족 등으로 실패하면 거기서 멈추고 몇 장이 저장 안 됐는지 돌려줌 */
+async function storeShots(o, files) {
+  const added = []; let err = null;
+  for (const f of files) {
+    try {
+      const key = 'shot_' + uid(); await IDB.put('blobs', key, f);
+      const th = await makeThumb(f); let thk = null; if (th) { thk = 'sth_' + uid(); try { await IDB.put('blobs', thk, th); } catch (e) { thk = null; } }
+      o.shots.push({ key, th: thk, name: f.name, t: Date.now() }); added.push(o.shots[o.shots.length - 1]);
+    } catch (e) { err = e; break; }
+  }
+  return { added, failed: files.length - added.length, err };
+}
+function shotFailDialog(r) {
+  const msg = (r.err && r.err.name === 'QuotaExceededError') ? '태블릿 저장공간이 부족합니다.' : '사진을 태블릿에 저장하지 못했습니다' + (r.err && r.err.message ? ` (${r.err.message})` : '') + '.';
+  dialog({ title: '사진 저장 실패', body: h('div', null, h('p', null, msg), h('p', { style: { margin: 0 } }, `${r.added.length}장은 붙였고 ${r.failed}장은 저장되지 않았습니다. 카메라로 바로 찍은 사진은 갤러리에 없을 수 있으니 다시 찍으세요. 저장공간이 부족하면 프로젝트 파일로 백업한 뒤 필요 없는 프로젝트를 지우세요.`)), noBackdrop: true });
+}
+/** 카메라를 여는 동안 메모리가 부족해 앱이 다시 시작되는 경우 알려 주기 */
+function shotPending(on) { lsSet('shotPending', on ? String(Date.now()) : ''); }
 function numberShots(o, shots, memo) { const ns = []; for (const s of shots) { const n = nextNum('photo'); o.photos.push({ n: String(n), memo: memo || '', shot: s.key }); ns.push(n); } return ns; }
 const fmtNos = ns => { const p = S.proj.settings.prefix.photo || ''; return !ns.length ? '' : ns.length === 1 ? p + ns[0] : `${p}${ns[0]}~${p}${ns[ns.length - 1]}`; };
 
@@ -1084,16 +1139,86 @@ function markerSummary(m) { return [markerTitle(m), dimText(m), rebarText(m)].fi
 function isFilled(m) { return !!(m.type || m.mark || dimText(m) || m.scans.length || m.hammers.length || m.photos.length || m.shots.length); }
 
 /* ================= 프로젝트 저장 ================= */
-const saveSoon = debounce(saveProjectNow, 700);
-function touch() { if (!S.proj) return; S.proj.updated = Date.now(); $('#saveState').textContent = '저장 대기…'; saveSoon(); }
+/* 저장 상태: dirty = 아직 저장 안 한 변경 있음, base = 이 창이 불러오거나 저장한 저장본 번호 */
+const SAVE = { dirty: false, failed: false, conflict: false, base: 0, busy: null, err: '', sig: '' };
+/** 프로젝트 내용 지문 – touch()를 빠뜨린 변경도 앱을 닫을 때 놓치지 않게 */
+function projSig(p) { return p ? JSON.stringify(p) : ''; }   // 마지막 저장 내용 전체와 그대로 비교 (글자 하나 바뀐 것도 잡음)
+/** 숨겨지거나 닫힐 때: 저장 안 된 변경(지문이 달라진 경우 포함)이 있으면 저장 */
+function flushOnLeave() { try { if (S.proj && !SAVE.dirty && !SAVE.conflict && !IDB.mem && SAVE.sig && projSig(S.proj) !== SAVE.sig) SAVE.dirty = true; } catch (e) { /* */ } return saveSoon.flush(); }
+const saveSoon = debounce(saveProjectNow, 700, 2500);
+function touch() { if (!S.proj) return; S.proj.updated = Date.now(); SAVE.dirty = true; if (!SAVE.failed && !SAVE.conflict) setSaveState('wait'); saveSoon(); }
+/** 저장 상태 표시: 왼쪽 메뉴 글자 + (문제 있을 때) 화면 위 빨간 띠 – 현장조사 화면에서도 보임 */
+function setSaveState(k, txt) {
+  if (IDB.mem && k !== 'fail' && k !== 'conflict') k = 'mem';   // 임시 모드는 저장돼도 계속 경고
+  const el = $('#saveState'); if (el) el.textContent = k === 'ok' ? `저장됨 ${fmtTime(Date.now())}` : k === 'wait' ? '저장 대기…' : k === 'loaded' ? `저장됨 ${fmtTime(txt)}` : k === 'mem' ? '임시 모드 (저장 안 됨)' : k === 'conflict' ? '저장 보류 (다른 창)' : '저장 실패';
+  let bar = $('#saveAlert');
+  const bad = k === 'fail' || k === 'mem' || k === 'conflict';
+  if (!bad) { if (bar) bar.remove(); return; }
+  if (!bar) { bar = h('button', { id: 'saveAlert', type: 'button' }); document.body.append(bar); }
+  bar.textContent = IDB.mem ? '⚠ 임시 모드: 태블릿에 저장되지 않습니다 – 프로젝트 파일로 저장하세요' : k === 'conflict' ? '⚠ 다른 창에서 이 프로젝트를 바꾸거나 지웠습니다 – 눌러서 정리' : `⚠ 저장 실패${txt ? ' (' + txt + ')' : ''} – 눌러서 다시 저장`;
+  bar.onclick = () => { if (IDB.mem) saveProjectZip(false); else if (SAVE.conflict) resolveConflict(); else { SAVE.failed = true; saveProjectNow(); } };
+}
+/** 지금 저장. 성공(또는 저장할 것 없음) = true. 변경이 없으면 저장하지 않음 → 오래된 창이 숨겨질 때 최신 기록을 덮어쓰는 일 없음 */
 async function saveProjectNow() {
+  while (SAVE.busy) await SAVE.busy.catch(() => { });
+  if (!S.proj) return true;
+  if (SAVE.conflict) return false;
+  if (!SAVE.dirty && !SAVE.failed) return true;
+  const p = S.proj; SAVE.dirty = false;
+  const job = IDB.saveProject(p, SAVE.base);
+  SAVE.busy = job;
+  try {
+    const r = await job;
+    if (r === 'conflict') { SAVE.dirty = true; SAVE.conflict = true; setSaveState('conflict'); resolveConflict(); return false; }
+    if (S.proj === p) { SAVE.base = p.rev; if (!SAVE.dirty) try { SAVE.sig = projSig(p); } catch (e) { /* */ } }
+    SAVE.failed = false; setSaveState(SAVE.dirty ? 'wait' : 'ok'); return true;
+  } catch (e) {
+    SAVE.dirty = true; SAVE.failed = true; SAVE.err = (e && (e.name === 'QuotaExceededError' ? '저장공간 부족' : e.message)) || '오류';
+    setSaveState('fail', SAVE.err); toast('태블릿에 저장하지 못했습니다: ' + SAVE.err, { ms: 6000 });
+    return false;
+  } finally { if (SAVE.busy === job) SAVE.busy = null; }
+}
+/** 다른 창(PWA와 크롬 탭 등)에서 같은 프로젝트를 고쳐 저장한 경우 */
+async function resolveConflict() {
+  if ($('#conflictDlg')) return;
+  let gone = false; try { gone = !(await IDB.get('projects', S.proj.id)); } catch (e) { /* */ }
+  if (gone) {   // 다른 창에서 이 프로젝트를 지운 경우
+    const mark = h('span', { id: 'conflictDlg' });
+    const c = await dialog({ title: '다른 창에서 지운 프로젝트입니다', body: h('div', null, mark, h('p', { style: { margin: 0 } }, `'${S.proj.name}'은 다른 창에서 지워졌습니다. 이 창에 남은 내용으로 다시 저장할 수 있지만, 지울 때 함께 지워진 사진·도면은 돌아오지 않습니다.`)),
+      buttons: [{ label: '다시 저장', value: 'mine' }, { label: '지운 대로 두기', value: 'theirs', cls: 'pri' }], noBackdrop: true });
+    SAVE.conflict = false;
+    if (c === 'mine') { SAVE.base = 0; SAVE.dirty = true; await saveProjectNow(); }
+    else { SAVE.dirty = false; S.proj = null; await loadProjectList(); if (S.list[0]) await setProject(S.list[0]); else $('#navProj').textContent = ''; setSaveState('ok'); showView('projects'); }
+    return;
+  }
+  const mark = h('span', { id: 'conflictDlg' });
+  const c = await dialog({ title: '다른 창에서 저장한 기록이 있습니다', body: h('div', null, mark, h('p', null, '같은 프로젝트가 다른 창(설치한 앱과 크롬 탭 등)에서 열려 더 최근에 저장되었습니다. 이 창의 변경은 아직 저장하지 않았습니다.'), h('p', { style: { margin: 0 } }, '보통은 ‘최신 기록 불러오기’를 고르세요. 이 창에서 방금 입력한 내용이 꼭 필요하면 ‘이 창 내용으로 저장’을 고르면 다른 창의 변경이 덮어써집니다. 같은 프로젝트는 한 창에서만 여세요.')),
+    buttons: [{ label: '이 창 내용으로 저장', value: 'mine', cls: 'danger' }, { label: '최신 기록 불러오기', value: 'theirs', cls: 'pri' }], noBackdrop: true });
+  if (c === 'mine') { const cur = await IDB.get('projects', S.proj.id); SAVE.base = (cur && cur.rev) || SAVE.base; SAVE.conflict = false; SAVE.dirty = true; await saveProjectNow(); }
+  else if (c === 'theirs') { SAVE.conflict = false; SAVE.dirty = false; await reloadProjectFromDB(); }
+}
+async function reloadProjectFromDB() {
   if (!S.proj) return;
-  try { await IDB.put('projects', S.proj.id, S.proj); $('#saveState').textContent = `저장됨 ${fmtTime(Date.now())}`; }
-  catch (e) { $('#saveState').textContent = '저장 실패'; toast('태블릿에 저장하지 못했습니다: ' + e.message); }
+  const fresh = await IDB.get('projects', S.proj.id); if (!fresh) return;
+  const view = S.view; S.proj = null; await loadProjectList();
+  const p = S.list.find(q => q.id === fresh.id); if (p) { await setProject(p); showView(view); toast('다른 창에서 저장한 최신 기록을 불러왔습니다', { ms: 3500 }); }
+}
+/** 창이 다시 보일 때: 다른 창이 더 최근에 저장했으면 (이 창에 저장 안 한 변경이 없을 때) 조용히 최신 기록으로 */
+async function checkNewerElsewhere() {
+  if (!S.proj || IDB.mem || SAVE.busy) return;
+  try {
+    const cur = await IDB.get('projects', S.proj.id);
+    if (!cur && SAVE.base > 0) { SAVE.conflict = true; setSaveState('conflict'); resolveConflict(); return; }   // 다른 창에서 지움
+    if (!cur || (cur.rev || 0) <= SAVE.base) return;
+    if (SAVE.dirty || SAVE.failed) { SAVE.conflict = true; setSaveState('conflict'); resolveConflict(); } else await reloadProjectFromDB();
+  } catch (e) { /* 확인 실패는 무시 */ }
 }
 async function loadProjectList() {
   const all = await IDB.all('projects');
-  S.list = all.map(normProject).sort((a, b) => b.updated - a.updated);
+  const out = [];
+  for (const q of all) { try { out.push(normProject(q)); } catch (e) { console.error('프로젝트 읽기 오류', q && q.id, e); toast(`프로젝트 하나(${(q && q.name) || '?'})를 읽지 못했습니다. 지우지 말고 담당자에게 알려 주세요.`, { ms: 8000 }); } }
+  if (S.proj) { const i = out.findIndex(q => q.id === S.proj.id); if (i >= 0) out[i] = S.proj; }   // 열려 있는 프로젝트는 화면의 최신 내용 그대로
+  S.list = out.sort((a, b) => b.updated - a.updated);
   return S.list;
 }
 function projectBlobKeys(p, withLinked = true) {
@@ -2735,11 +2860,18 @@ async function editText(t) {
 function eraseAt(pt) {
   const d = V.drag; const push = () => { if (!d.pushed) { pushUndo(); d.pushed = true; } };
   const m = hitMarker(pt);
-  if (m) { push(); removeMarker(m, true); return; }
-  const w = hitWall(pt); if (w) { push(); removeWall(w); return; }
+  // 입력값이 있는 위치·조적벽은 지우개로 바로 지우지 않고 물어봄 (S펜 버튼·손바닥 실수 방지)
+  if (m) { if (itemHasData(m)) { V.drag = null; askErase(m); } else { push(); removeMarker(m, true); } return; }
+  const w = hitWall(pt); if (w) { if (itemHasData(w)) { V.drag = null; askErase(w); } else { push(); removeWall(w); } return; }
   const t = hitText(pt); if (t) { push(); V.sheet.texts = V.sheet.texts.filter(x => x !== t); requestRender(false); return; }
   const st = hitStroke(pt, 12); if (st) { push(); V.sheet.strokes = V.sheet.strokes.filter(x => x !== st); requestRender(false); return; }
   const g = hitShape(pt, true); if (g) { push(); V.sheet.shapes = shapesOf(V.sheet).filter(x => x !== g); if (V.sel && V.sel.id === g.id) V.sel = null; requestRender(false); }
+}
+async function askErase(o) {
+  const name = isWall(o) ? `조적벽(${o.thick})` : isApItem(o) ? `${AP_KINDS[o.kind].short} ${o.no}번` : `${o.no}번 위치(${markerTitle(o)})`;
+  if (!await confirmDlg('지우기', `${name}에 입력한 내용이 있습니다. 지울까요?`, '지우기', true)) return;
+  if (!sheetHas(V.sheet, o)) return;
+  pushUndo(); if (isWall(o)) removeWall(o); else removeMarker(o, true);
 }
 function removeMarker(m, withToast) {
   if (isApItem(m)) { removeApItem(m, withToast); return; }
@@ -2748,7 +2880,7 @@ function removeMarker(m, withToast) {
   if (V.panelM === m) closePanel();
   if (V.sel && V.sel.id === m.id) V.sel = null;
   touchSheet();
-  if (withToast) toast(`${m.no}번 위치를 지웠습니다`, { action: () => undo(), label: '되돌리기' });
+  if (withToast) toast(`${m.no}번 위치를 지웠습니다`, { action: undoToastAction(), label: '되돌리기' });
 }
 function deleteSelection() {
   const s = V.sel; if (!s) return; pushUndo();
@@ -2763,17 +2895,64 @@ function touchSheet() { touch(); updateDisp(); updateCounter(); requestRender(fa
 
 /* 되돌리기 */
 const UNDO = [], REDO = [];
-function snap(sh) { return { sid: sh.id, data: JSON.stringify({ m: sh.markers, s: sh.strokes, t: sh.texts, g: sh.shapes || [], a: sh.ap || [], w: sh.walls || [] }) }; }
-function restoreSnap(u) { const sh = S.proj.sheets.find(x => x.id === u.sid); if (!sh) return null; const d = JSON.parse(u.data); sh.markers = d.m.map(normMarker); sh.strokes = d.s; sh.texts = d.t; sh.shapes = d.g || []; sh.ap = d.a || []; sh.walls = d.w || []; normSheetAp(sh); return sh; }
+/* 되돌리기 원칙 (데이터 보호)
+ * - 그리기 동작(찍기·옮기기·지우기·선·글자·도형)만 되돌림. 상세창에서 입력한 값(규격·배근·사진·메모·탐사 등)은 절대 되돌리지 않음
+ *   → 되돌릴 때 양쪽에 다 있는 위치는 '지금 입력값'을 그대로 두고 위치(좌표)·표시 모양만 예전으로
+ * - 도면을 바꾸거나 현장조사↔외관조사를 바꾸면 되돌리기 목록을 비움 (안 보이는 곳이 바뀌지 않게)
+ * - 되돌리면 입력값이 있는 위치가 지워지는 경우엔 먼저 물어봄 */
+const GEO_KEYS = { m: ['x', 'y', 'tx', 'ty', 'sym'], a: ['x', 'y', 'tx', 'ty', 'sym', 'no', 'kind'], w: ['pts', 'thick'] };
+function snap(sh) { return { sid: sh.id, mode: V.mode, data: JSON.stringify({ m: sh.markers, s: sh.strokes, t: sh.texts, g: sh.shapes || [], a: sh.ap || [], w: sh.walls || [] }) }; }
+/** 목록 합치기: 예전 목록 순서·구성 + 지금 입력값 */
+function mergeUndoList(cur, old, keys, norm) {
+  const byId = new Map(cur.map(o => [o.id, o])), out = [];
+  for (const o of old) { const c = byId.get(o.id); if (c) { for (const k of keys) { if (k in o) c[k] = Array.isArray(o[k]) ? o[k].slice() : o[k]; else delete c[k]; } out.push(c); } else out.push(norm ? norm(o) : o); }
+  return out;
+}
+/** 되돌리면 사라질 것 중 입력값이 있는 것 */
+function undoLosses(u) {
+  const sh = S.proj.sheets.find(x => x.id === u.sid); if (!sh) return [];
+  const d = JSON.parse(u.data), keep = new Set([...d.m, ...(d.a || []), ...(d.w || [])].map(o => o.id)), out = [];
+  for (const m of sh.markers) if (!keep.has(m.id) && itemHasData(m)) out.push(`${m.no}번 위치(${markerTitle(m)})`);
+  for (const a of sh.ap || []) if (!keep.has(a.id) && itemHasData(a)) out.push(`${AP_KINDS[a.kind].short} ${a.no}번`);
+  for (const w of sh.walls || []) if (!keep.has(w.id) && itemHasData(w)) out.push(`조적벽(${w.thick})`);
+  return out;
+}
+function restoreSnap(u) {
+  const sh = S.proj.sheets.find(x => x.id === u.sid); if (!sh) return null; const d = JSON.parse(u.data);
+  sh.markers = mergeUndoList(sh.markers, d.m, GEO_KEYS.m, normMarker);
+  sh.ap = mergeUndoList(sh.ap || [], d.a || [], GEO_KEYS.a);
+  sh.walls = mergeUndoList(sh.walls || [], d.w || [], GEO_KEYS.w);
+  sh.strokes = d.s; sh.texts = d.t; sh.shapes = d.g || [];
+  normSheetAp(sh); return sh;
+}
+/** 상세 입력값이 있는지 (지우기 전에 물어볼지) */
+function itemHasData(o) {
+  if (!o) return false;
+  if (isWall(o)) return !!(o.h || o.memo || (o.photos || []).length || (o.shots || []).length);
+  if (isApItem(o)) return !!(apFilled(o) || o.member || o.defect || o.heavy || o.memo || o.note || o.spec || o.w || o.len || o.area || (o.photos || []).length || (o.shots || []).length || skHas(o));
+  return !!(isFilled(o) || o.memo || (o.tags || []).length);
+}
+/** 지우기 알림의 '되돌리기': 그 사이 다른 작업을 했으면 엉뚱한 것을 되돌리지 않게 */
+function undoToastAction() { const top = UNDO[UNDO.length - 1]; return () => { if (UNDO[UNDO.length - 1] === top && top) undo(); else toast('그 사이 다른 작업을 해서 이 알림으로는 되돌릴 수 없습니다. 위쪽 되돌리기 버튼을 쓰세요.', { ms: 4000 }); }; }
+function clearUndo() { UNDO.length = 0; REDO.length = 0; updateUndoBtns(); }
 /** 도면 안에서 id로 조사위치·외관 표시·조적벽 찾기 */
 function findItem(sh, id) { return sh.markers.find(x => x.id === id) || (sh.ap || []).find(x => x.id === id) || (sh.walls || []).find(x => x.id === id) || null; }
 function sheetHas(sh, o) { return !!sh && (sh.markers.includes(o) || (sh.ap || []).includes(o) || (sh.walls || []).includes(o)); }
 function pushUndo() { if (!V.sheet) return; UNDO.push(snap(V.sheet)); if (UNDO.length > 80) UNDO.shift(); REDO.length = 0; updateUndoBtns(); }
-function undo() { const u = UNDO.pop(); if (!u) return; const sh = S.proj.sheets.find(x => x.id === u.sid); if (!sh) return; REDO.push(snap(sh)); restoreSnap(u); afterRestore(sh); }
-function redo() { const u = REDO.pop(); if (!u) return; const sh = S.proj.sheets.find(x => x.id === u.sid); if (!sh) return; UNDO.push(snap(sh)); restoreSnap(u); afterRestore(sh); }
+async function undo() { await undoRedo(UNDO, REDO, '되돌리기'); }
+async function redo() { await undoRedo(REDO, UNDO, '다시 하기'); }
+async function undoRedo(from, to, lb) {
+  const u = from[from.length - 1]; if (!u || !S.proj) return;
+  const sh = S.proj.sheets.find(x => x.id === u.sid);
+  if (!sh || sh !== V.sheet || (u.mode && u.mode !== V.mode)) { clearUndo(); return; }   // 다른 도면·화면 것은 버림
+  const loss = undoLosses(u);
+  if (loss.length && !await confirmDlg(lb, `${lb}를 하면 입력한 내용이 있는 ${loss.slice(0, 4).join(', ')}${loss.length > 4 ? ` 등 ${loss.length}개` : ''}가 지워집니다. 계속할까요?`, lb, true)) return;
+  if (from[from.length - 1] !== u) return;
+  from.pop(); to.push(snap(sh)); restoreSnap(u); afterRestore(sh);
+}
 function afterRestore(sh) {
   if (V.panelM) { const m = findItem(sh, V.panelM.id); if (m) openPanel(m); else closePanel(); }
-  if (sh !== V.sheet) openSheet(sh.id); touchSheet(); updateUndoBtns();
+  touchSheet(); updateUndoBtns();
 }
 function updateUndoBtns() { const u = $('#btnUndo'), r = $('#btnRedo'); if (u) u.disabled = !UNDO.length; if (r) r.disabled = !REDO.length; }
 
@@ -2911,6 +3090,11 @@ async function calibDialog() {
     buttons: [{ label: '취소', value: false }, { label: '보정 저장', cls: 'pri', value: () => { const v = ['cAX', 'cAY', 'cBX', 'cBY'].map(i => numv($('#' + i).value)); if (v.some(x => x == null) || (v[0] === v[2] && v[1] === v[3])) { toast('네 칸에 숫자를 모두 넣으세요 (A와 B는 달라야 합니다)'); return undefined; } return v; } }]
   });
   npMount(npSlot); const ok = await pr; npReset(); if (V.panelM) renderPanel();
+  if (ok) {   // 도면에서 A→B 방향과 입력한 좌표 방향이 다르면(부호·X/Y 바뀜) DXF가 돌아가 버림 → 확인
+    const dwx = B[0] - A[0], dwy = -(B[1] - A[1]), dqx = ok[2] - ok[0], dqy = ok[3] - ok[1];
+    const ang = Math.abs(Math.atan2(dwx * dqy - dwy * dqx, dwx * dqx + dwy * dqy)) * 180 / Math.PI;
+    if (ang > 5 && !await confirmDlg('기준점 방향 확인', `도면에서 A→B 방향과 입력한 좌표의 방향이 약 ${Math.round(ang)}° 다릅니다. 원도면이 돌아가 있지 않다면 B의 X·Y 값이나 부호(B가 A보다 아래·왼쪽이면 −)를 확인하세요. 이대로 저장하면 내보낸 DXF가 ${Math.round(ang)}° 돌아갑니다.`, '그대로 저장', true)) { endSpecialTool(); return; }
+  }
   if (ok) {
     V.sheet.calib = { type: 'pts', a: { wx: A[0], wy: A[1], X: ok[0], Y: ok[1] }, b: { wx: B[0], wy: B[1], X: ok[2], Y: ok[3] } };
     touch();
@@ -2973,7 +3157,7 @@ async function openSheet(id, focusId) {
     empty.hidden = false; fillSheetSelect(); return;
   }
   empty.hidden = true;
-  if (V.sheet && V.sheet !== sh) V.views.set(V.sheet.id, { ...V.view });
+  if (V.sheet && V.sheet !== sh) { V.views.set(V.sheet.id, { ...V.view }); clearUndo(); }
   V.sheet = sh; lsSet('lastSheet:' + S.proj.id, sh.id); fillSheetSelect(); updatePeekBtn();
   if (V.panelM && !sheetHas(sh, V.panelM)) closePanel();
   normSheetAp(sh);
@@ -3431,13 +3615,16 @@ function buildBoard(m, onChange, opts = {}) {
   // 칸 고르기: 고른 칸은 상세창 오른쪽 아래 숫자패드로 입력 (판에 쓴 손글씨도 같은 칸에)
   /** 고른 칸 끝내기: 손글씨로 읽은 숫자를 숫자패드로 고쳤으면 그 글씨를 기억 */
   const endSession = () => {
+    // 아직 인식 안 한 손글씨(쓰고 0.9초 안에 다른 칸·다음 위치로 넘어간 경우)는 버리지 않고 지금 인식해서 넣음
+    if (st.inkPending && st.ink.length && !st.sealed) { clearTimeout(st.inkTimer); try { recognize(); } catch (e) { /* */ } }
+    st.inkPending = false;
     if (st.rec && st.rec.k === st.target) { const v = String(getVal(m, st.target) ?? ''); if (v && v !== st.rec.text && /^[0-9]+$/.test(v)) { try { learnDigits(st.rec.rec, v); } catch (e) { /* */ } say('고친 숫자를 기억해 다음 인식에 반영합니다'); } }
     clearTimeout(st.inkTimer); clearTimeout(st.sealTimer);
     st.rec = null; st.target = null; st.pending = null; st.pendingVal = ''; st.ink = []; st.sealed = false;
     draw();
   };
   const setTarget = (k, msg) => {
-    if (st.target) endSession();
+    if (st.target || st.inkPending) endSession();
     clearTimeout(st.inkTimer); clearTimeout(st.sealTimer);
     st.ink = []; st.sealed = false; st.rec = null; st.pending = null;
     if (k === 'photo') {   // 사진 칸: 다음 사진번호를 바로 붙임 (번호는 숫자패드로 고침)
@@ -3458,6 +3645,7 @@ function buildBoard(m, onChange, opts = {}) {
 
   // 손글씨: 한 칸에 쓴 획은 다른 칸을 고를 때까지 한 숫자로 모아서 인식
   const recognize = () => {
+    st.inkPending = false;
     if (!st.ink.length) return;
     let rec; try { rec = recognizeNumber(st.ink); } catch (e) { rec = null; }
     if (!rec || !rec.text) return;
@@ -3475,7 +3663,7 @@ function buildBoard(m, onChange, opts = {}) {
   const addInk = p => {
     if (st.sealed) { st.ink = []; st.sealed = false; st.rec = null; }
     st.ink.push(p); st.lastInk = performance.now(); clearTimeout(st.inkTimer); clearTimeout(st.sealTimer);
-    st.inkTimer = setTimeout(recognize, 900); draw();
+    st.inkPending = true; st.inkTimer = setTimeout(recognize, 900); draw();
   };
   const inkHeight = () => { let mx = 0; for (const g of segmentDigits(st.ink)) { let a = 1e9, b = -1e9; for (const p of g) for (let i = 1; i < p.length; i += 2) { a = Math.min(a, p[i]); b = Math.max(b, p[i]); } mx = Math.max(mx, b - a); } return mx; };
 
@@ -3621,7 +3809,7 @@ function buildBoard(m, onChange, opts = {}) {
   hint.textContent = hintOf(st.mode);
   const el = h('div', { class: 'board' }, tools, shapeRow, layRow, h('div', { class: 'sk-wrap' }, cv), hint, clearRow);
   draw();
-  return { el, draw, sync: () => { layChips(); }, end: () => { if (st.target) endSession(); } };
+  return { el, draw, sync: () => { layChips(); }, end: () => { if (st.target || st.inkPending) endSession(); } };
 }
 /* 내보내기·보고서용 */
 function renderSketch(c, m) { drawBoard(c, m, null); }
@@ -3646,7 +3834,7 @@ const panelWide = () => panelWideOK() && lsGet('panelNarrow') !== '1';
 PANEL_WIDE_MQ.addEventListener('change', () => { if (V.panelM) { renderPanel(); setTimeout(() => ensureVisible(V.panelM), 80); } });
 function setPanelWide(on) { lsSet('panelNarrow', on ? '' : '1'); renderPanel(); setTimeout(() => V.panelM && ensureVisible(V.panelM), 80); }
 /** 다른 위치로 넘어가거나 닫을 때: 숫자패드 입력 마무리하고 비우기 */
-function npReset() { npCommit(); if (NPAD.target) NPAD.target.classList.remove('np-on'); NPAD.target = null; NPAD.key = null; if (V.panelBoard) { try { V.panelBoard.end(); } catch (e) { /* */ } } }
+function npReset() { if (V.panelBoard) { try { V.panelBoard.end(); } catch (e) { /* */ } } npCommit(); if (NPAD.target) NPAD.target.classList.remove('np-on'); NPAD.target = null; NPAD.key = null; }   // 손글씨 마무리(인식) 먼저 → 그다음 숫자패드 비움 (다음 위치에 이어 붙지 않게)
 function openPanel(m) {
   if (V.panelM !== m) npReset();
   V.panelM = m; const P = $('#panel'); const wasHidden = P.hidden; P.hidden = false; renderPanel();
@@ -3690,7 +3878,11 @@ function renderPanel() {
   left.append(h('div', { class: 'pn-sec' }, h('h3', null, '조사항목', h('small', null, '보고서 조사위치도를 항목별로 나눕니다')),
     h('div', { class: 'items' }, ITEMS.map(it => h('button', {
       type: 'button', class: 'item-t' + (m.items[it.k] ? ' on' : ''), 'aria-pressed': String(!!m.items[it.k]),
-      onclick: () => { m.items[it.k] = !m.items[it.k]; if (it.k === 'scan') { delete m.scanAutoOn; if (m.items.scan) applyScanDefaults(m); else undoScanDefaults(m); } panelChanged(true); }
+      onclick: async () => {
+        // 기록이 있는 항목을 끄면 출력(위치도·결과표)에서 빠지므로 먼저 확인
+        const recs = it.k === 'scan' ? m.scans.filter(e => e.tgt || e.res) : it.k === 'hammer' ? m.hammers : [];
+        if (m.items[it.k] && recs.length && !await confirmDlg(`${it.label} 끄기`, `${it.label} 기록 ${recs.length}개(${recs.map(e => prefixOf(it.k, e.n)).filter(Boolean).slice(0, 4).join(', ')})가 있습니다. 끄면 ${it.label} 위치도와 결과표에서 빠집니다. 기록은 지워지지 않습니다.`, '끄기', true)) return;
+        m.items[it.k] = !m.items[it.k]; if (it.k === 'scan') { delete m.scanAutoOn; if (m.items.scan) applyScanDefaults(m); else undoScanDefaults(m); } panelChanged(true); }
     }, h('i', { style: { background: it.color } }, it.short), it.label)))));
 
   // 위치 표시 모양 (화살표 / ⊗ 아래에서 조사)
@@ -3952,17 +4144,16 @@ async function makeThumb(blob, max = 360) {
 function takeShot(m) {
   const inp = $('#fileShot'); inp.value = '';
   inp.onchange = async () => {
-    const files = Array.from(inp.files || []); if (!files.length) return; const added = [];
-    for (const f of files) {
-      const key = 'shot_' + uid(); await IDB.put('blobs', key, f);
-      const th = await makeThumb(f); let thk = null; if (th) { thk = 'sth_' + uid(); await IDB.put('blobs', thk, th); }
-      m.shots.push({ key, th: thk, name: f.name, t: Date.now() }); added.push(m.shots[m.shots.length - 1]);
-    }
-    const ns = numberShots(m, added);   // 찍은 사진마다 다음 사진번호
-    panelChanged(V.panelM === m);
-    toast(`사진 ${files.length}장을 ${m.no}번 위치에 붙였습니다 · 사진번호 ${fmtNos(ns)}`);
+    shotPending(false);
+    const files = Array.from(inp.files || []); if (!files.length) return;
+    const r = await storeShots(m, files), added = r.added;
+    const ns = added.length ? numberShots(m, added) : [];   // 찍은 사진마다 다음 사진번호
+    if (added.length) panelChanged(V.panelM === m);
+    if (r.failed) shotFailDialog(r);
+    else toast(`사진 ${files.length}장을 ${m.no}번 위치에 붙였습니다 · 사진번호 ${fmtNos(ns)}`);
   };
-  inp.click();
+  inp.oncancel = () => shotPending(false);
+  shotPending(true); inp.click();
 }
 async function openImage(key, opt = {}) {
   let url = null;
@@ -3985,7 +4176,7 @@ async function openImage(key, opt = {}) {
 /* ================= 4. 외관조사 (같은 도면 화면, V.mode = 'ap') ================= */
 function setMode(mode) {
   if (V.mode !== mode) {
-    closePanel(); V.sel = null; V.stroke = null; V.drag = null;
+    closePanel(); V.sel = null; V.stroke = null; V.drag = null; clearUndo();
     if (V.calib || V.tool === 'region') endSpecialTool();
     if (mode === 'ap') { V.dispMember = V.disp; V.disp = 'field'; closePeek(); }
     else V.disp = V.dispMember || 'field';
@@ -4078,7 +4269,7 @@ function removeWall(w) {
   if (V.panelM === w) closePanel();
   if (V.sel && V.sel.id === w.id) V.sel = null;
   touchSheet(); syncApBar();
-  toast(`조적벽(${w.thick})을 지웠습니다`, { action: () => undo(), label: '되돌리기' });
+  toast(`조적벽(${w.thick})을 지웠습니다`, { action: undoToastAction(), label: '되돌리기' });
 }
 function removeApItem(a, withToast) {
   const sh = V.sheet; sh.ap = sh.ap.filter(x => x !== a);
@@ -4087,7 +4278,7 @@ function removeApItem(a, withToast) {
   if (V.panelM === a) closePanel(); else if (V.panelM && isApItem(V.panelM)) renderPanel();
   if (V.sel && V.sel.id === a.id) V.sel = null;
   touchSheet(); syncApBar();
-  if (withToast) toast(`${AP_KINDS[a.kind].short} ${a.no}번을 지웠습니다${later ? ' (뒤 번호를 하나씩 당겼습니다)' : ''}`, { action: () => undo(), label: '되돌리기' });
+  if (withToast) toast(`${AP_KINDS[a.kind].short} ${a.no}번을 지웠습니다${later ? ' (뒤 번호를 하나씩 당겼습니다)' : ''}`, { action: undoToastAction(), label: '되돌리기' });
 }
 /** 결함 ↔ 중량물 바꾸기: 새 구분의 마지막 번호로, 원래 구분은 번호 당김 */
 function changeApKind(a, kind) {
@@ -4101,17 +4292,16 @@ function changeApKind(a, kind) {
 function takeShotInto(o, after, label, memo) {
   const inp = $('#fileShot'); inp.value = '';
   inp.onchange = async () => {
-    const files = Array.from(inp.files || []); if (!files.length) return; const added = [];
-    for (const f of files) {
-      const key = 'shot_' + uid(); await IDB.put('blobs', key, f);
-      const th = await makeThumb(f); let thk = null; if (th) { thk = 'sth_' + uid(); await IDB.put('blobs', thk, th); }
-      o.shots.push({ key, th: thk, name: f.name, t: Date.now() }); added.push(o.shots[o.shots.length - 1]);
-    }
-    const ns = numberShots(o, added, memo);   // 찍은 사진마다 다음 사진번호
-    touch(); updateCounter(); if (after) after();
-    toast(`사진 ${files.length}장을 ${label || '여기'}에 붙였습니다 · 사진번호 ${fmtNos(ns)}`);
+    shotPending(false);
+    const files = Array.from(inp.files || []); if (!files.length) return;
+    const r = await storeShots(o, files), added = r.added;
+    const ns = added.length ? numberShots(o, added, memo) : [];   // 찍은 사진마다 다음 사진번호
+    if (added.length) { touch(); updateCounter(); if (after) after(); }
+    if (r.failed) shotFailDialog(r);
+    else toast(`사진 ${files.length}장을 ${label || '여기'}에 붙였습니다 · 사진번호 ${fmtNos(ns)}`);
   };
-  inp.click();
+  inp.oncancel = () => shotPending(false);
+  shotPending(true); inp.click();
 }
 function photoBlock(o, opt = {}) {
   const pre = S.proj.settings.prefix.photo || '';
@@ -4120,7 +4310,7 @@ function photoBlock(o, opt = {}) {
   const redraw = () => { const nb = photoBlock(o, opt); box.replaceWith(nb); updateCounter(); if (opt.onChange) opt.onChange(); };
   box.append(h(opt.sec === false ? 'h4' : 'h3', null, opt.title || '사진', h('span', { class: 'pill' }, o.photos.length + o.shots.length), h('span', { class: 'spacer' }), h('small', null, `다음 ${pre}${nextNum('photo')}`)));
   o.photos.forEach((e, i) => {
-    const nIn = npField(h('input', { class: 'in', value: e.n, 'aria-label': '사진 번호' }), { key: `${opt.npk || 'ph'}:${i}`, label: `사진 번호 ${pre}` });
+    const nIn = npField(h('input', { class: 'in', value: e.n, 'aria-label': '사진 번호' }), { key: `${opt.npk || 'ph'}:${npIdOf(e)}`, label: `사진 번호 ${pre}` });   // 줄을 지워도 다른 사진 번호가 바뀌지 않게 (사진 자체로 키)
     nIn.addEventListener('input', () => { e.n = nIn.value; touch(); updateCounter(); });
     nIn.addEventListener('change', redraw);
     const cap = h('input', { class: 'in', value: e.memo || '', placeholder: opt.cap || '메모', 'aria-label': opt.cap || '메모' });
@@ -4608,11 +4798,19 @@ function showView(v) {
   if (v === 'link') renderLink();
   if (v === 'export') renderExport();
 }
+/** 프로젝트 열기. 지금 프로젝트를 먼저 저장하고(실패하면 물어봄), 열 프로젝트는 저장소에서 최신본을 다시 읽음 (목록에 남아 있던 옛 사본으로 열지 않게) */
 async function setProject(p) {
-  if (S.proj && S.proj !== p) await saveProjectNow();
+  if (S.proj && S.proj !== p) {
+    const ok = await saveProjectNow();
+    if (!ok && !await confirmDlg('저장하지 못했습니다', `'${S.proj.name}'의 최근 변경을 태블릿에 저장하지 못했습니다. 그래도 다른 프로젝트로 바꾸면 저장 안 된 변경은 사라집니다.`, '그래도 바꾸기', true)) return false;
+  }
+  if (S.proj !== p && !IDB.mem) { try { const fresh = await IDB.get('projects', p.id); if (fresh) p = fresh; } catch (e) { /* 목록 사본 사용 */ } }
   S.proj = normProject(p); lsSet('lastProject', p.id);
+  const i = S.list.findIndex(q => q.id === S.proj.id); if (i >= 0) S.list[i] = S.proj;
+  SAVE.base = S.proj.rev || 0; SAVE.dirty = false; SAVE.failed = false; SAVE.conflict = false; setSaveState('loaded', S.proj.updated); try { SAVE.sig = projSig(S.proj); } catch (e) { SAVE.sig = ''; }
   V.sheet = null; V.src = null; V.views.clear(); V.disp = 'field'; UNDO.length = 0; REDO.length = 0; closePanel(); updateUndoBtns();
-  $('#navProj').textContent = p.name; $('#saveState').textContent = `저장됨 ${fmtTime(p.updated)}`;
+  $('#navProj').textContent = S.proj.name;
+  return true;
 }
 
 /* ================= 1. 프로젝트 ================= */
@@ -4648,15 +4846,19 @@ function renderProjects() {
 async function newProjectFlow() {
   const name = await promptDlg('새 프로젝트', '프로젝트명 (예: ○○초등학교 본관 내진성능평가)', '');
   if (name == null) return;
-  const p = newProject(name.trim() || '새 프로젝트'); await IDB.put('projects', p.id, p); S.list.unshift(p);
+  const p = newProject(name.trim() || '새 프로젝트');
+  try { await IDB.put('projects', p.id, p); } catch (e) { toast('새 프로젝트를 저장하지 못했습니다: ' + ((e && e.message) || e), { ms: 6000 }); return; }
+  S.list.unshift(p);
   await setProject(p); showView('sheets');
 }
 async function deleteProject() {
   const p = S.proj; if (!p) return;
   if (!await confirmDlg('프로젝트 지우기', `'${p.name}'과 도면·사진을 이 기기에서 지웁니다. 되돌릴 수 없습니다. 필요하면 먼저 프로젝트 파일로 저장하세요.`, '지우기', true)) return;
   const others = new Set(); for (const q of S.list) if (q.id !== p.id) for (const k of projectBlobKeys(q)) others.add(k);
-  for (const k of projectBlobKeys(p)) if (!others.has(k)) await IDB.del('blobs', k);
+  // 프로젝트 기록을 먼저 지우고 사진·도면을 지움 (중간에 꺼져도 '사진 없는 프로젝트'가 남지 않게)
+  saveSoon.cancel(); SAVE.dirty = false;
   await IDB.del('projects', p.id); S.list = S.list.filter(q => q.id !== p.id); S.proj = null;
+  for (const k of projectBlobKeys(p)) if (!others.has(k)) { try { await IDB.del('blobs', k); } catch (e) { /* 남은 파일은 무시 */ } }
   if (S.list[0]) await setProject(S.list[0]); else { $('#navProj').textContent = ''; }
   renderProjects(); toast('프로젝트를 지웠습니다');
 }
@@ -4687,21 +4889,40 @@ async function importProjectZip() {
   catch (e) { toast('프로젝트 파일이 아닙니다 (project.json 없음)'); return; }
   if (info.format !== 'hill-yajang') { toast('이 앱에서 저장한 프로젝트 파일이 아닙니다'); return; }
   let p = normProject(info.project);
+  if (S.proj && S.proj.id === p.id) await saveProjectNow();
   const exists = S.list.find(q => q.id === p.id);
+  let over = false;
   if (exists) {
-    const c = await dialog({ title: '같은 프로젝트가 있습니다', body: h('p', { style: { margin: 0 } }, `'${exists.name}'이 이미 이 기기에 있습니다. 불러온 파일로 덮어쓸까요, 사본으로 추가할까요?`), buttons: [{ label: '취소', value: null }, { label: '사본으로 추가', value: 'copy' }, { label: '덮어쓰기', value: 'over', cls: 'pri' }] });
+    const cnt = q => q.sheets.reduce((a, s) => a + s.markers.length + (s.ap || []).length, 0);
+    const c = await dialog({ title: '같은 프로젝트가 있습니다', body: h('div', null,
+      h('p', null, `'${exists.name}'이 이미 이 기기에 있습니다.`),
+      h('table', { class: 'tbl' }, h('tbody', null,
+        h('tr', null, h('td', null, '이 기기'), h('td', { class: 'num' }, `마지막 수정 ${fmtTime(exists.updated)}`), h('td', { class: 'r' }, `위치 ${cnt(exists)}곳`)),
+        h('tr', null, h('td', null, '불러온 파일'), h('td', { class: 'num' }, `마지막 수정 ${fmtTime(p.updated)}`), h('td', { class: 'r' }, `위치 ${cnt(p)}곳`)))),
+      h('p', { style: { margin: '8px 0 0' } }, '잘 모르겠으면 ‘사본으로 추가’를 고르세요. 덮어쓰면 이 기기의 기록이 불러온 파일 내용으로 바뀝니다.')),
+      buttons: [{ label: '취소', value: null }, { label: '덮어쓰기', value: 'over', cls: 'danger' }, { label: '사본으로 추가', value: 'copy', cls: 'pri' }], noBackdrop: true });
     if (!c) return;
-    if (c === 'copy') { p.id = uid(); p.name += ' (사본)'; }
+    if (c === 'copy') { p.id = uid(); p.name += ' (사본)'; } else over = true;
   }
-  for (const [k, m] of Object.entries(info.blobs || {})) {
-    const zf = zip.file('blobs/' + k); if (!zf) continue;
-    let v;
-    if (m.t === 'text') v = await zf.async('string');
-    else if (m.t === 'ab') v = await zf.async('arraybuffer');
-    else { const ab = await zf.async('arraybuffer'); v = new Blob([ab], { type: m.mime || '' }); }
-    await IDB.put('blobs', k, v);
+  const prog = h('div', { class: 'dlg-back' }, h('div', { class: 'dlg' }, h('h2', null, '프로젝트 불러오는 중…'), h('p', { style: { margin: 0 } }, '사진·도면을 태블릿에 넣고 있습니다.'))); $('#dlg-root').append(prog);
+  try {
+    for (const [k, m] of Object.entries(info.blobs || {})) {
+      const zf = zip.file('blobs/' + k); if (!zf) continue;
+      let v;
+      if (m.t === 'text') v = await zf.async('string');
+      else if (m.t === 'ab') v = await zf.async('arraybuffer');
+      else { const ab = await zf.async('arraybuffer'); v = new Blob([ab], { type: m.mime || '' }); }
+      await IDB.put('blobs', k, v);
+    }
+    const cur = over ? await IDB.get('projects', p.id) : null;
+    p.rev = ((cur && cur.rev) || 0) + 1; p.updated = Date.now(); await IDB.put('projects', p.id, p);
+  } catch (e) {
+    prog.remove();
+    await dialog({ title: '불러오지 못했습니다', body: h('p', { style: { margin: 0 } }, (e && e.name === 'QuotaExceededError' ? '태블릿 저장공간이 부족합니다. ' : '') + '기존 기록은 바뀌지 않았습니다. (' + ((e && e.message) || e) + ')') });
+    return;
   }
-  p.updated = Date.now(); await IDB.put('projects', p.id, p);
+  prog.remove();
+  if (S.proj && S.proj.id === p.id) { SAVE.dirty = false; S.proj = null; }   // 덮어쓴 경우: 화면에 있던 옛 내용을 다시 저장하지 않게
   await loadProjectList(); await setProject(S.list.find(q => q.id === p.id)); renderProjects();
   toast(`'${p.name}'을 불러왔습니다`);
 }
@@ -5037,7 +5258,7 @@ function renderLink() {
   off.oninput = debounce(() => { st.offset = numv(off.value) || 0; touch(); renderLink(); }, 400);
   $('#btnLinkFiles').onclick = async () => { const fs = await pickFiles({ accept: k === 'photo' ? 'image/*' : '' }); if (fs.length) importLinkFiles(k, fs); };
   $('#btnLinkFolder').onclick = async () => { const fs = await pickFiles({ dir: true }); if (fs.length) importLinkFiles(k, fs); };
-  $('#btnLinkClear').onclick = async () => { const fs = p.files.filter(f => f.kind === k); if (!fs.length) return; if (!await confirmDlg('목록 비우기', `${k === 'photo' ? '사진' : '철근탐사'} 파일 ${fs.length}개를 목록에서 뺍니다. 조사 기록은 그대로입니다.`, '비우기', true)) return; const keep = new Set(p.files.filter(f => f.kind !== k).map(f => f.key)); for (const f of fs) { if (!keep.has(f.key)) await IDB.del('blobs', f.key); if (f.th) await IDB.del('blobs', f.th); } p.files = p.files.filter(f => f.kind !== k); touch(); renderLink(); };
+  $('#btnLinkClear').onclick = async () => { const fs = p.files.filter(f => f.kind === k); if (!fs.length) return; if (!await confirmDlg('목록 비우기', `${k === 'photo' ? '사진' : '철근탐사'} 파일 ${fs.length}개를 목록에서 뺍니다. 조사 기록은 그대로입니다.`, '비우기', true)) return; const keep = new Set(p.files.filter(f => f.kind !== k).flatMap(f => [f.key, f.th])); for (const q of S.list) if (q.id !== p.id) for (const f of (q.files || [])) { keep.add(f.key); if (f.th) keep.add(f.th); }   /* 사본 프로젝트가 같이 쓰는 파일은 남김 */ for (const f of fs) { try { if (!keep.has(f.key)) await IDB.del('blobs', f.key); if (f.th && !keep.has(f.th)) await IDB.del('blobs', f.th); } catch (e) { /* */ } } p.files = p.files.filter(f => f.kind !== k); touch(); renderLink(); };
   const files = p.files.filter(f => f.kind === k);
   const idx = recordIndex(k); const pre = p.settings.prefix[k];
   // 사진: 부재조사 / 외관조사(결함·중량물·체크리스트) 나눠 보기
@@ -5093,9 +5314,9 @@ async function importLinkFiles(kind, files) {
   const prog = h('div', { class: 'progress' }, h('div')); const msg = h('p', { style: { margin: 0 } }, '준비 중…');
   const back = h('div', { class: 'dlg-back' }, h('div', { class: 'dlg' }, h('h2', null, '파일 불러오는 중'), h('div', { class: 'dlg-body' }, msg, prog)));
   $('#dlg-root').append(back);
-  let n = 0, skipped = 0;
+  let n = 0, skipped = 0, failErr = null;
   const isImg = f => /^(jpe?g|png|webp|bmp|gif|tiff?|heic|heif)$/.test(extOf(f.name)) || (f.type || '').startsWith('image/');
-  for (const f of files) {
+  try { for (const f of files) {
     n++; msg.textContent = `${n} / ${files.length} · ${f.name}`; prog.firstChild.style.width = (n / files.length * 100) + '%';
     if (f.name.startsWith('.') || (kind === 'photo' && !isImg(f))) { skipped++; continue; }
     const key = 'f_' + uid(); await IDB.put('blobs', key, f);
@@ -5115,9 +5336,10 @@ async function importLinkFiles(kind, files) {
     let thk = null; if (isImg(f)) { const tb = await makeThumb(f); if (tb) { thk = 'fth_' + uid(); await IDB.put('blobs', thk, tb); } }
     S.proj.files.push({ id: uid(), kind, name: f.name, file: f.name, key, th: thk, pdfPage: 0, raw, manual: null, ext: extOf(f.name) });
     if (n % 10 === 0) await sleep(0);
-  }
+  } } catch (e) { failErr = e; }
   back.remove(); touch(); renderLink();
-  toast(`${files.length - skipped}개 파일을 불러왔습니다${skipped ? ` (${skipped}개는 이미지가 아니라 건너뜀)` : ''}`);
+  if (failErr) dialog({ title: '파일을 다 불러오지 못했습니다', body: h('p', { style: { margin: 0 } }, `${(failErr && failErr.name === 'QuotaExceededError') ? '태블릿 저장공간이 부족합니다. ' : ''}${n - 1}번째 파일까지만 불러왔습니다. (${(failErr && failErr.message) || failErr})`) });
+  else toast(`${files.length - skipped}개 파일을 불러왔습니다${skipped ? ` (${skipped}개는 이미지가 아니라 건너뜀)` : ''}`);
 }
 
 /* ================= 일람표(참고용 도면) 빠르게 보기 =================
@@ -5346,13 +5568,30 @@ function renderExport() {
   const uncal = p.sheets.filter(s => !isCalibrated(s));
   const prog = h('div', { class: 'progress', hidden: true }, h('div')); const msg = h('small', { id: 'expMsg' });
   const go = h('button', { class: 'btn pri', type: 'button', style: { minHeight: '48px', fontSize: '16px' } }, 'ZIP 만들기');
-  go.onclick = async () => { go.disabled = true; prog.hidden = false; try { await buildExport((f, t) => { prog.firstChild.style.width = Math.round(f * 100) + '%'; msg.textContent = t; }); } catch (e) { console.error(e); toast('내보내기 중 오류: ' + e.message, { ms: 7000 }); } go.disabled = false; prog.hidden = true; msg.textContent = ''; };
+  go.onclick = async () => {
+    // 내보내는 동안 화면을 막음 (도중에 고치면 번호가 어긋난 출력물이 나옴)
+    const bar = h('div', { class: 'progress' }, h('div')), bmsg = h('p', { style: { margin: '0 0 8px' } }, '준비 중…');
+    const block = h('div', { class: 'dlg-back' }, h('div', { class: 'dlg' }, h('h2', null, '내보내는 중…'), bmsg, bar, h('p', { class: 'hint', style: { margin: '8px 0 0' } }, '끝날 때까지 기다려 주세요. 사진이 많으면 몇 분 걸립니다.')));
+    $('#dlg-root').append(block); go.disabled = true; $('#app').inert = true;
+    let ctx = null;
+    try { ctx = await buildExport((f, t) => { bar.firstChild.style.width = Math.round(f * 100) + '%'; bmsg.textContent = t; }, true); }
+    catch (e) { console.error(e); block.remove(); go.disabled = false; $('#app').inert = false; await dialog({ title: '내보내기 실패', body: h('p', { style: { margin: 0 } }, '내보내기 중 오류가 났습니다: ' + ((e && e.message) || e) + ' – 조사 기록은 그대로입니다. 사진이 아주 많으면 ‘사진·파일 정리’를 끄고 다시 해 보세요.') }); return; }
+    block.remove(); go.disabled = false; $('#app').inert = false;
+    if (ctx && ctx.issues.length) {   // 확인할 것 요약 (엑셀 '확인필요' 시트와 같음)
+      const sev = ctx.issues.filter(r => /도면|실패|중복|데이터 없음|꺼짐|여러 개/.test(r[0]));
+      const list = (sev.length ? sev : ctx.issues).slice(0, 10);
+      dialog({ title: `내보내기 완료 · 확인 필요 ${ctx.issues.length}건`, wide: true, body: h('div', null,
+        h('p', { style: { marginTop: 0 } }, sev.length ? `출력물에 영향이 있는 항목 ${sev.length}건이 있습니다. 확인하고 필요하면 고친 뒤 다시 내보내세요.` : '조사결과표의 ‘확인필요’ 시트에서 자세히 볼 수 있습니다.'),
+        h('div', { class: 'tbl-wrap', style: { maxHeight: '46vh' } }, h('table', { class: 'tbl' }, h('tbody', null, list.map(r => h('tr', null, h('td', null, r[0]), h('td', { class: 'num' }, String(r[1])), h('td', null, r[2])))))),
+        ctx.issues.length > list.length ? h('p', { class: 'hint', style: { marginBottom: 0 } }, `외 ${ctx.issues.length - list.length}건은 조사결과표 ‘확인필요’ 시트에 있습니다.`) : null) });
+    }
+  };
   const right = h('div', { class: 'col', style: { flex: 1 } },
     h('div', { class: 'card' }, h('h2', null, 'DXF 설정'),
       h('p', { class: 'hint' }, `번호 크기는 현장조사 화면에서 맞춘 크기(배율 ${Math.round((st.markScale || 1) * 100)}%) 그대로 PNG와 DXF에 나갑니다. 화면 왼쪽 아래 ‘번호 크기 − +’로 조절하세요.`),
       ck('labels', '부재·번호 라벨 함께 넣기', '예: W1 t=200, SS18,SS19'),
       ck('base', 'DXF 원도면 포함', 'DXF로 불러온 도면은 원도면 선·글자를 함께 넣고, 표시만 있는 파일도 따로 만듭니다'),
-      uncal.length ? h('div', { class: 'note' }, h('b', null, `축척 미보정 도면 ${uncal.length}장: `), uncal.map(s => s.name).join(', '), '. 이 도면들의 DXF는 종이 크기(mm) 기준으로 나갑니다. 원도면 CAD에 겹치려면 현장조사 화면 › 더보기 › 축척 보정을 하세요.') : null),
+      uncal.length ? h('div', { class: 'note' }, h('b', null, `축척 미보정 도면 ${uncal.length}장: `), uncal.map(s => s.name).join(', '), '. 이 도면들의 DXF는 PDF는 종이 크기(mm), 사진·이미지는 픽셀 기준으로 나갑니다. 원도면 CAD에 겹치려면 현장조사 화면 › 더보기 › 축척 보정을 하세요.') : null),
     h('div', { class: 'card' }, h('h2', null, '만들기'),
       h('p', { class: 'hint' }, `${safeName(p.name)}_현장조사_${today()}.zip 하나로 저장합니다. 사진이 많으면 시간이 걸립니다.`), go, prog, msg),
     h('div', { class: 'card' }, h('h2', null, '프로젝트 파일'), h('p', { class: 'hint' }, '현장 기록을 PC로 옮기거나 백업할 때 씁니다.'),
@@ -5362,15 +5601,51 @@ function renderExport() {
 
 /* 시트 그림 */
 async function renderSheetCanvas(sheet, src, disp, numMap, o = {}) {
-  const r = await renderBaseCanvas(sheet, src, o), { c, view } = r, s = view.s;
+  const r = await renderBaseCanvas(sheet, src, { ...o, pts: figurePts(sheet, disp) }), { c, view } = r, s = view.s;
   const prefix = disp === 'field' ? '' : (S.proj.settings.itemPrefix[disp] || '');
   const R = markerRW(sheet, src) * s;
   drawMarkups(c, sheet, view, { R, lw: Math.max(0.8, R * 0.1), penW: Math.max(0.8, R * 0.13), disp, numMap, labels: o.labels, badges: false, prefixOf, prefix });   // 현장번호: 펜 메모·글자·도형 전부 / 항목별: 그 항목 도형만
   return r;
 }
 /** 위치도 바탕: 도면만 그린 캔버스 (흑백 옵션) */
+/** 그림 범위: 도면 범위 + (밖에 찍은 표시가 있으면) 그 표시까지 – 번호가 잘려 안 보이는 일 없게 */
+/** 그림 범위: 도면 범위 + 이 그림에 그리는 표시가 도면 가장자리 밖에 조금 나가 있으면 그만큼 (도면 크기의 30%까지만 – 멀리 잘못 찍은 하나 때문에 도면이 작아지지 않게; 그런 표시는 '확인필요'로) */
+function exportBounds(sheet, src, pts) {
+  const b0 = sheetBounds(sheet, src), b = { x0: b0.x0, y0: b0.y0, x1: b0.x1, y1: b0.y1 }, pad = markerRW(sheet, src) * 2.4;
+  const lim = 0.3 * Math.max(b0.x1 - b0.x0, b0.y1 - b0.y0);
+  for (const [x, y] of pts || []) {
+    if (x == null || y == null || !Number.isFinite(x) || !Number.isFinite(y)) continue;
+    if (x >= b0.x0 && x <= b0.x1 && y >= b0.y0 && y <= b0.y1) continue;
+    if (x < b0.x0 - lim || x > b0.x1 + lim || y < b0.y0 - lim || y > b0.y1 + lim) continue;
+    b.x0 = Math.min(b.x0, x - pad); b.x1 = Math.max(b.x1, x + pad); b.y0 = Math.min(b.y0, y - pad); b.y1 = Math.max(b.y1, y + pad);
+  }
+  return b;
+}
+/** 이 그림에 그리는 표시들의 점 (disp: 'field'|항목, ap: 'defect'|'wall'|'heavy'|'obstacle') */
+function figurePts(sheet, disp, ap) {
+  const pts = [], mk = o => { pts.push([o.x, o.y]); if (o.tx != null) pts.push([o.tx, o.ty]); };
+  if (ap) {
+    for (const a of (sheet.ap || []).filter(a => a.kind === ap)) mk(a);
+    if (ap === 'wall') for (const w of sheet.walls || []) pts.push([w.pts[0], w.pts[1]], [w.pts[2], w.pts[3]]);
+    for (const g of shapesFor(sheet, 'ap', ap)) pts.push([g.x0, g.y0], [g.x1, g.y1]);
+  } else {
+    for (const m of markersFor(sheet, disp)) mk(m);
+    for (const g of shapesFor(sheet, 'm', disp === 'field' ? null : disp)) pts.push([g.x0, g.y0], [g.x1, g.y1]);
+  }
+  return pts;
+}
+/** 도면에서 아주 멀리 찍힌 표시 (그림에 안 보일 수 있음) */
+function farMarks(sheet, src) {
+  const b0 = sheetBounds(sheet, src), lim = 0.3 * Math.max(b0.x1 - b0.x0, b0.y1 - b0.y0), far = (x, y) => x < b0.x0 - lim || x > b0.x1 + lim || y < b0.y0 - lim || y > b0.y1 + lim;
+  const out = [];
+  for (const m of sheet.markers) if (far(m.x, m.y) || (m.tx != null && far(m.tx, m.ty))) out.push(`${m.no}번`);
+  for (const a of sheet.ap || []) if (far(a.x, a.y) || (a.tx != null && far(a.tx, a.ty))) out.push(`${AP_KINDS[a.kind].short} ${a.no}`);
+  (sheet.walls || []).forEach((w, i) => { if (far(w.pts[0], w.pts[1]) || far(w.pts[2], w.pts[3])) out.push(`조적벽 ${i + 1}`); });
+  for (const g of sheet.shapes || []) if (far(g.x0, g.y0) || far(g.x1, g.y1)) { out.push('도형'); break; }
+  return out;
+}
 async function renderBaseCanvas(sheet, src, o = {}) {
-  const b = sheetBounds(sheet, src); const bw = b.x1 - b.x0, bh = b.y1 - b.y0;
+  const b = exportBounds(sheet, src, o.pts); const bw = b.x1 - b.x0, bh = b.y1 - b.y0;
   const long = o.long || 3600, s = long / Math.max(bw, bh);
   const W = Math.max(1, Math.round(bw * s)), H = Math.max(1, Math.round(bh * s));
   const cv = document.createElement('canvas'); cv.width = W; cv.height = H; const c = cv.getContext('2d');
@@ -5489,8 +5764,8 @@ function sheetDXF(sheet, src, disp, numMap, o) {
 /* 엑셀 */
 function buildXlsx(ctx) {
   const p = S.proj, X = window.XLSX; const wb = X.utils.book_new();
-  const maps = ctx.maps, unitNote = s => (s.src.kind === 'dxf' ? 'CAD 좌표' : s.calib ? '보정 좌표(mm)' : '종이 좌표(mm, 미보정)');
-  const nn = v => { const n = numv(v); return n == null ? (v || '') : n; };
+  const maps = ctx.maps, unitNote = s => (s.src.kind === 'dxf' ? 'CAD 좌표' : s.calib ? '보정 좌표(mm)' : s.src.kind === 'pdf' ? '종이 좌표(mm, 미보정)' : '이미지 좌표(픽셀, 미보정)');
+  const nn = v => { const t = String(v ?? '').trim().replace(/,/g, ''); return /^-?\d+(\.\d+)?$/.test(t) ? Number(t) : (v ?? ''); };   // '2F-1'·'1-12' 같은 번호는 글자 그대로
   const add = (name, head, rows, widths) => { const ws = X.utils.aoa_to_sheet([head, ...rows]); ws['!cols'] = (widths || head.map(() => 12)).map(w => ({ wch: w })); ws['!autofilter'] = { ref: X.utils.encode_range({ s: { r: 0, c: 0 }, e: { r: Math.max(1, rows.length), c: head.length - 1 } }) }; X.utils.book_append_sheet(wb, ws, name); };
   const r1 = [];
   for (const [s, m] of allMarkers()) {
@@ -5502,10 +5777,11 @@ function buildXlsx(ctx) {
   }
   add('조사위치(현장번호)', ['도면', '현장번호', '부재', '부호', 'b(mm)', 'h(mm)', 't(mm)', '배근', ...ITEMS.map(it => it.label + ' 번호'), '철근탐사', '반발경도', '사진', '태블릿 촬영', '외관', '메모', 'X(화살표 끝)', 'Y(화살표 끝)', '좌표 기준'], r1,
     [14, 8, 8, 8, 8, 8, 8, 28, 10, 10, 10, 8, 8, 18, 14, 14, 8, 14, 24, 10, 10, 16]);
-  const itemRows = k => { const rows = []; for (const [s, m] of allMarkers().filter(([, m]) => m.items[k]).sort((a, b) => maps[k].get(a[1].id) - maps[k].get(b[1].id))) rows.push([s, m, (p.settings.itemPrefix[k] || '') + maps[k].get(m.id)]); return rows; };
+  const si = s => p.sheets.indexOf(s);
+  const itemRows = k => { const rows = []; for (const [s, m] of allMarkers().filter(([, m]) => m.items[k]).sort((a, b) => si(a[0]) - si(b[0]) || maps[k].get(a[1].id) - maps[k].get(b[1].id))) rows.push([s, m, (p.settings.itemPrefix[k] || '') + maps[k].get(m.id)]); return rows; };   // 도면 순서 → 번호 순
   add('부재규격', ['번호', '도면', '현장번호', '부재', '부호', 'b(mm)', 'h(mm)', 't(mm)', '슬래브 두께(mm)', '슬래브 하단~보 하단(mm)', '배근', '메모'], itemRows('dim').map(([s, m, n]) => [nn(n), s.name, m.no, m.type, m.mark, nn(m.dim.b), nn(m.dim.h), nn(m.dim.t), nn(m.dim.ts), nn(m.dim.hb), rebarText(m), m.memo]), [7, 14, 8, 8, 8, 8, 8, 8, 12, 16, 30, 24]);
   const sr = [];
-  for (const [s, m, n] of itemRows('scan')) { if (!m.scans.length) sr.push([nn(n), s.name, m.no, m.type, m.mark, '', '', '', rebarText(m), '', '']); for (const e of m.scans) { const fs = ctx.fileOut.filter(x => x.kind === 'scan' && x.n === numv(e.n) && x.m === m); sr.push([nn(n), s.name, m.no, m.type, m.mark, prefixOf('scan', e.n), e.tgt || '', e.res || '', rebarText(m), fs.map(x => x.src).join(', '), fs.map(x => x.out).join(', ')]); } }
+  for (const [s, m, n] of itemRows('scan')) { if (!m.scans.length) sr.push([nn(n), s.name, m.no, m.type, m.mark, '', '', '', rebarText(m), '', '']); for (const e of m.scans) { const fs = ctx.fileOut.filter(x => x.kind === 'scan' && x.n === numv(e.n) && x.m === m); sr.push([nn(n), s.name, m.no, m.type, m.mark, prefixOf('scan', e.n), e.tgt || '', e.res || '', rebarText(m), fs.map(x => x.src).join(', '), fs.map(x => x.out).filter(Boolean).join(', ')]); } }
   add('철근탐사', ['번호', '도면', '현장번호', '부재', '부호', '탐사번호', '대상', '결과', '배근', '원본 파일', '정리 파일'], sr, [7, 14, 8, 8, 8, 10, 12, 12, 30, 24, 40]);
   const hr = []; for (const [s, m, n] of itemRows('hammer')) {
     if (!m.hammers.length) hr.push([nn(n), s.name, m.no, m.type, m.mark, '', '', '', '']);
@@ -5513,7 +5789,7 @@ function buildXlsx(ctx) {
   }
   add('반발경도', ['번호', '도면', '현장번호', '부재', '부호', '측정번호', '위치(단부/중앙부)', '측정 면', '메모'], hr, [7, 14, 8, 8, 8, 10, 14, 16, 26]);
   for (const k of ['core'].filter(k => ITEM[k])) { const rows = itemRows(k); if (rows.length) add(ITEM[k].label, ['번호', '도면', '현장번호', '부재', '부호', '메모'], rows.map(([s, m, n]) => [nn(n), s.name, m.no, m.type, m.mark, m.memo]), [7, 14, 8, 8, 8, 30]); }
-  const pr = []; for (const [s, m] of allMarkers()) for (const e of m.photos) { const fs = ctx.fileOut.filter(x => x.kind === 'photo' && x.n === numv(e.n) && x.m === m); pr.push([s.name, m.no, m.type, m.mark, prefixOf('photo', e.n), e.dim ? dimLabelOf(m, e.dim) + (getVal(m, e.dim) ? ' ' + getVal(m, e.dim) : '') : '부재 전체', e.memo || '', fs.map(x => x.src).join(', '), fs.map(x => x.out).join(', ')]); }
+  const pr = []; for (const [s, m] of allMarkers()) for (const e of m.photos) { const fs = ctx.fileOut.filter(x => x.kind === 'photo' && x.n === numv(e.n) && x.m === m); pr.push([s.name, m.no, m.type, m.mark, prefixOf('photo', e.n), e.dim ? dimLabelOf(m, e.dim) + (getVal(m, e.dim) ? ' ' + getVal(m, e.dim) : '') : '부재 전체', e.memo || '', fs.map(x => x.src).join(', '), fs.map(x => x.out).filter(Boolean).join(', ')]); }
   add('사진', ['도면', '현장번호', '부재', '부호', '사진번호', '대상', '메모', '원본 파일', '정리 파일'], pr, [14, 8, 8, 8, 10, 18, 20, 24, 40]);
   if (p.settings.exp.ap && apHasData(p)) apXlsxSheets(add, ctx, nn);
   add('확인필요', ['구분', '번호', '내용'], ctx.issues, [16, 12, 60]);
@@ -5537,10 +5813,11 @@ function reportHTML(ctx) {
   out += `<p class="noprint" style="color:#666">브라우저 인쇄(Ctrl+P)로 PDF 저장할 수 있습니다. 그림 파일은 같은 폴더의 ‘조사위치도’, ‘보고서그림’에 있습니다.</p>`;
   let first = true;
   for (const d of ctx.disps) {
-    const figs = ctx.figs.filter(f => f.disp === d); if (!figs.length) continue;
+    const figs = ctx.figs.filter(f => f.disp === d);
+    const rows = d === 'field' ? [] : allMarkers().filter(([, m]) => m.items[d]).sort((a, b) => p.sheets.indexOf(a[0]) - p.sheets.indexOf(b[0]) || ctx.maps[d].get(a[1].id) - ctx.maps[d].get(b[1].id));
+    if (!figs.length && !rows.length) continue;   // 그림을 못 만든 도면이 있어도 표는 남김
     out += `<h2 class="${first ? 'first' : ''}">${esc(dispLabel(d))} 조사위치도</h2>`; first = false;
     for (const f of figs) out += `<div class="fig"><img src="${enc(f.path)}" alt=""><p>${esc(f.sheet.name)} – ${esc(dispLabel(d))} 조사위치도</p></div>`;
-    const rows = d === 'field' ? [] : allMarkers().filter(([, m]) => m.items[d]).sort((a, b) => ctx.maps[d].get(a[1].id) - ctx.maps[d].get(b[1].id));
     if (rows.length) {   // 도형만 있는 항목은 그림만
       const pre = p.settings.itemPrefix[d] || '';
       out += `<table><tr><th>번호</th><th>도면</th><th>현장번호</th><th>부재</th><th>규격</th><th>${d === 'scan' ? '배근 / 탐사번호' : d === 'hammer' ? '측정번호' : '배근·메모'}</th></tr>`;
@@ -5573,7 +5850,7 @@ function reportHTML(ctx) {
 }
 
 /* 전체 내보내기 */
-async function buildExport(progress) {
+async function buildExport(progress, wantCtx) {
   const p = S.proj, ex = p.settings.exp;
   if (!window.JSZip) throw new Error('압축 엔진을 불러오지 못했습니다 (인터넷 연결 필요)');
   if (ex.xlsx && !window.XLSX) throw new Error('엑셀 엔진을 불러오지 못했습니다 (인터넷 연결 필요)');
@@ -5590,6 +5867,7 @@ async function buildExport(progress) {
   for (const [si, s] of sheets.entries()) {
     let src; try { src = await loadSource(s); } catch (e) { ctx.issues.push(['도면', s.name, '도면을 열지 못해 위치도를 만들지 못했습니다: ' + e.message]); continue; }
     let fieldCanvas = null;
+    { const fm = farMarks(s, src); if (fm.length) ctx.issues.push(['도면 밖 표시', fm.slice(0, 6).join(', ') + (fm.length > 6 ? ` 외 ${fm.length - 6}` : ''), `${s.name} – 도면에서 멀리 떨어진 곳에 찍혀 위치도 그림에 안 보일 수 있습니다. 위치를 옮기거나 지우세요`]); }
     for (const d of disps) {
       tick(`${s.name} · ${dispLabel(d)} 위치도`);
       if (d !== 'field' && !markersFor(s, d).length && !shapesFor(s, 'm', d).length) continue;   // 그 항목 위치도 없으면 안 만듦 (도형만 있어도 만듦)
@@ -5601,7 +5879,7 @@ async function buildExport(progress) {
       }
       if (ex.png || ex.report || d === 'field') {
         const r = await renderSheetCanvas(s, src, d, maps[d], { labels: ex.labels, mono: ex.mono });
-        if (ex.png || ex.report) { const path = uniq(base + '.png'); root.file(path, await toBlob(r.cv)); ctx.figs.push({ disp: d, sheet: s, path }); }
+        if (ex.png || ex.report) { const bl = await toBlob(r.cv); if (bl && bl.size) { const path = uniq(base + '.png'); root.file(path, bl); ctx.figs.push({ disp: d, sheet: s, path }); } else ctx.issues.push(['그림 만들기 실패', dispLabel(d), `${s.name} – 위치도 그림(PNG)을 만들지 못했습니다 (태블릿 메모리 부족일 수 있음). DXF는 정상입니다. PC에서 다시 내보내세요`]); }
         if (d === 'field') fieldCanvas = r; else r.cv.width = 0;
       }
       await sleep(0);
@@ -5616,7 +5894,8 @@ async function buildExport(progress) {
         const cx = mx * view.s + view.tx, cy = my * view.s + view.ty;
         const out = document.createElement('canvas'); out.width = cw; out.height = ch; const oc = out.getContext('2d');
         oc.fillStyle = '#fff'; oc.fillRect(0, 0, cw, ch); oc.drawImage(cv, cx - cw / 2, cy - ch / 2, cw, ch, 0, 0, cw, ch);
-        const path = uniq(`보고서그림/${sheetDir(s, si)}/${pad(m.no)}번_위치.jpg`); root.file(path, await toBlob(out, 'image/jpeg', 0.85));
+        const jb = await toBlob(out, 'image/jpeg', 0.85); out.width = 0; if (!jb || !jb.size) { ctx.issues.push(['그림 만들기 실패', `${m.no}`, `${s.name} – 보고서용 위치 그림을 만들지 못했습니다`]); continue; }
+        const path = uniq(`보고서그림/${sheetDir(s, si)}/${pad(m.no)}번_위치.jpg`); root.file(path, jb);
         const c = ctx.cards.get(m.id) || {}; c.crop = path; ctx.cards.set(m.id, c);
       }
     }
@@ -5632,8 +5911,9 @@ async function buildExport(progress) {
     for (const [si, s] of sheets.entries()) for (const m of s.markers) {
       if (!m.sketch.length && !(['기둥', '보', '기초', '벽체', '슬래브', '조적벽'].includes(m.type) && (rebarText(m) || dimText(m)))) continue;
       const cv = document.createElement('canvas'); cv.width = BOARD_W * 2; cv.height = BOARD_H * 2; const c = cv.getContext('2d'); c.scale(2, 2); renderSketch(c, m);
+      const sb = await toBlob(cv); cv.width = 0; if (!sb || !sb.size) { ctx.issues.push(['그림 만들기 실패', `${m.no}`, `${s.name} – 배근 스케치 그림을 만들지 못했습니다`]); continue; }
       const path = uniq(`배근스케치/${sheetDir(s, si)}/${pad(m.no)}번_${safeName(m.mark || m.type || '부재')}.png`);
-      root.file(path, await toBlob(cv)); const cc = ctx.cards.get(m.id) || {}; cc.sketch = path; ctx.cards.set(m.id, cc);
+      root.file(path, sb); const cc = ctx.cards.get(m.id) || {}; cc.sketch = path; ctx.cards.set(m.id, cc);
     }
   }
 
@@ -5653,6 +5933,11 @@ async function buildExport(progress) {
   for (const kind of ['photo', 'scan']) {
     const fnum = new Map();
     for (const f of filesByKind[kind]) { const n = fileNum(f); if (n == null) continue; if (!fnum.has(n)) fnum.set(n, []); fnum.get(n).push(f); }
+    // 같은 번호를 두 기록이 쓰면 같은 사진이 두 곳에 들어감 → 확인 필요로 알림
+    const recNum = new Map(); for (const r of recs[kind]) { const n = numv(r.e.n); if (n == null) continue; if (!recNum.has(n)) recNum.set(n, []); recNum.get(n).push(r.where); }
+    for (const [n, ws] of recNum) if (ws.length > 1) ctx.issues.push([kind === 'scan' ? '철근탐사 번호 중복' : '사진번호 중복', prefixOf(kind, n), `${ws.join(' / ')} – 같은 번호가 ${ws.length}곳에 있어 같은 파일이 여러 곳에 들어갔습니다`]);
+    for (const [n, fs] of fnum) if (fs.length > 1 && !fs.every(f => f.key === fs[0].key)) ctx.issues.push([kind === 'scan' ? '같은 번호 철근탐사 파일 여러 개' : '같은 번호 사진 파일 여러 개', prefixOf(kind, n), fs.map(f => f.name).join(', ') + ' – 모두 넣었으니 어느 것이 맞는지 확인하세요']);
+    for (const r of recs[kind]) if (String(r.e.n ?? '').trim() !== '' && !/^\s*\d+(\.\d+)?\s*$/.test(String(r.e.n))) ctx.issues.push([kind === 'scan' ? '철근탐사 번호 확인' : '사진번호 확인', String(r.e.n), `${r.where} – 숫자가 아니어서 파일을 찾지 못했습니다`]);
     for (const r of recs[kind]) {
       const e = r.e, m = r.o, n = numv(e.n); if (n == null) continue;
       const fs = fnum.get(n) || [], shot = kind === 'photo' ? shotOfEntry(m, e) : null;
@@ -5663,18 +5948,19 @@ async function buildExport(progress) {
       if (shot) {   // 태블릿으로 바로 찍은 사진 = 이 사진번호의 파일
         const d = await IDB.get('blobs', shot.key);
         if (d) { const path = uniq(`${r.dir}/${name}.${extOf(shot.name) || 'jpg'}`); root.file(path, d); ctx.fileOut.push({ kind, n, m, src: '태블릿 촬영', out: path }); const cc = ctx.cards.get(r.card) || {}; (cc.files = cc.files || []).push(path); ctx.cards.set(r.card, cc); }
+        else ctx.issues.push(['사진 데이터 없음', prefixOf(kind, e.n), `${r.where} – 태블릿 촬영 사진 파일이 기기에 없습니다`]);
         if (fs.length) ctx.issues.push(['같은 사진번호', prefixOf(kind, e.n), `${r.where} – 태블릿 사진과 카메라 사진 파일이 같은 번호입니다. 둘 다 넣었으니 번호를 확인하세요`]);
       }
       for (const f of fs) {
         usedFiles.add(f);
         const ext = f.pdfPage ? 'png' : (extOf(f.name) || 'bin');
+        if (!(ex.files || ex.report)) { ctx.fileOut.push({ kind, n, m, src: f.name, out: '' }); continue; }   // 파일 정리를 안 하면 경로도 안 적음
+        let data;
+        if (f.pdfPage) { try { const doc = await getPdf(f.key); const page = await doc.getPage(f.pdfPage); const r = await renderPdfPage(page, 2000); data = await toBlob(r.cv); r.cv.width = 0; } catch (er) { data = null; } }
+        else data = await IDB.get('blobs', f.key);
+        if (!data || !data.size && !data.byteLength) { ctx.issues.push(['파일 데이터 없음', prefixOf(kind, e.n), `${r.where} – ${f.name}: 기기에 파일 내용이 없어 넣지 못했습니다`]); ctx.fileOut.push({ kind, n, m, src: f.name, out: '' }); continue; }
         const path = uniq(`${r.dir}/${name}.${ext}`);
-        if (ex.files || ex.report) {
-          let data;
-          if (f.pdfPage) { try { const doc = await getPdf(f.key); const page = await doc.getPage(f.pdfPage); const r = await renderPdfPage(page, 2000); data = await toBlob(r.cv); r.cv.width = 0; } catch (er) { data = null; } }
-          else data = await IDB.get('blobs', f.key);
-          if (data) root.file(path, data);
-        }
+        root.file(path, data);
         ctx.fileOut.push({ kind, n, m, src: f.name, out: path });
         const cc = ctx.cards.get(r.card) || {}; (cc.files = cc.files || []).push(path); ctx.cards.set(r.card, cc);
       }
@@ -5693,6 +5979,10 @@ async function buildExport(progress) {
   if (ex.ap) { await apShots(ctx, root, sheets, sheetDir, uniq); apIssues(ctx); }
   for (const [s, m] of allMarkers()) if (!isFilled(m)) ctx.issues.push(['미입력 위치', `${m.no}`, `${s.name} – 부재·번호 기록이 없습니다`]);
   for (const [s, m] of allMarkers()) if (!ITEMS.some(it => m.items[it.k])) ctx.issues.push(['항목 미지정', `${m.no}`, `${s.name} – 조사항목이 하나도 켜져 있지 않아 항목별 위치도에 빠집니다`]);
+  for (const [s, m] of allMarkers()) {   // 기록은 있는데 항목이 꺼진 경우 (위치도·결과표에서 빠짐)
+    if (!m.items.scan && m.scans.some(e => e.n || e.tgt || e.res)) ctx.issues.push(['철근탐사 항목 꺼짐', `${m.no}`, `${s.name} ${markerTitle(m)} – 철근탐사 기록(${m.scans.map(e => prefixOf('scan', e.n)).filter(Boolean).join(', ') || '번호 없음'})이 있지만 철근탐사 항목이 꺼져 있어 철근탐사 위치도·결과표에서 빠졌습니다`]);
+    if (!m.items.hammer && m.hammers.length) ctx.issues.push(['반발경도 항목 꺼짐', `${m.no}`, `${s.name} ${markerTitle(m)} – 반발경도 기록(${m.hammers.map(e => prefixOf('hammer', e.n)).filter(Boolean).join(', ')})이 있지만 반발경도 항목이 꺼져 있어 반발경도 위치도·결과표에서 빠졌습니다`]);
+  }
 
   tick('조사결과표');
   if (ex.xlsx) root.file('조사결과표.xlsx', buildXlsx(ctx));
@@ -5703,7 +5993,7 @@ async function buildExport(progress) {
   const blob = await zip.generateAsync({ type: 'blob', compression: 'DEFLATE', compressionOptions: { level: 4 } }, meta => progress(0.9 + meta.percent / 1000, '압축하는 중…'));
   progress(1, '저장');
   await saveFile(`${safeName(p.name)}_현장조사_${today()}.zip`, blob);
-  return blob;
+  return wantCtx ? ctx : blob;
 }
 
 /* ================= 외관조사 내보내기 · 보고서 문안 ================= */
@@ -5735,7 +6025,7 @@ const apObstacleCount = (p = S.proj) => p.sheets.reduce((a, s) => a + shapesFor(
 
 /* 위치도 그림 (PNG) */
 async function renderApCanvas(sheet, src, only, o = {}) {
-  const r = await renderBaseCanvas(sheet, src, o), { c, view, W, H } = r;
+  const r = await renderBaseCanvas(sheet, src, { ...o, pts: figurePts(sheet, null, only) }), { c, view, W, H } = r;
   const R = markerRW(sheet, src) * view.s;
   drawApMarkups(c, sheet, view, { R, lw: Math.max(0.8, R * 0.1), penW: Math.max(0.8, R * 0.13), only, labels: false });
   drawApLegend(c, W, H, R, sheet, only);
@@ -5843,15 +6133,17 @@ async function apExportFigures(ctx, root, s, si, src, sheetDir, uniq, ex) {
     }
     if (ex.png || ex.report) {
       const r = await renderApCanvas(s, src, only, { mono: ex.mono });
-      const path = uniq(base + '.png'); root.file(path, await toBlob(r.cv)); r.cv.width = 0;
-      ctx.apFigs.push({ only, sheet: s, path });
+      const bl = await toBlob(r.cv); r.cv.width = 0;
+      if (bl && bl.size) { const path = uniq(base + '.png'); root.file(path, bl); ctx.apFigs.push({ only, sheet: s, path }); }
+      else ctx.issues.push(['그림 만들기 실패', AP_FIG_TITLE[only], `${s.name} – 위치도 그림(PNG)을 만들지 못했습니다 (태블릿 메모리 부족일 수 있음). DXF는 정상입니다. PC에서 다시 내보내세요`]);
     }
     await sleep(0);
   }
   // 균열 스케치 그림
   for (const a of apOfKind(s, 'defect')) if (skHas(a)) {
     const path = uniq(`외관조사/균열스케치/${sheetDir(s, si)}/결함${pad2(a.no)}_${safeName([a.member, a.defect].filter(Boolean).join('_') || '결함')}.png`);
-    root.file(path, await crackSketchBlob(a)); (ctx.apSketch = ctx.apSketch || new Map()).set(a.id, path);
+    const cb = await crackSketchBlob(a); if (!cb || !cb.size) { ctx.issues.push(['그림 만들기 실패', `결함 ${a.no}`, `${s.name} – 균열 스케치 그림을 만들지 못했습니다`]); continue; }
+    root.file(path, cb); (ctx.apSketch = ctx.apSketch || new Map()).set(a.id, path);
   }
 }
 function apPhotoRecords(recs, sheets, sheetDir) {
@@ -5888,7 +6180,7 @@ const apPhotoNos = o => (o.photos || []).map(e => prefixOf('photo', e.n)).filter
 const apFinishText = (f, k) => [...f[k], ...String(f[k + 'X'] || '').split(/[,，]/).map(x => x.trim()).filter(Boolean)].join(', ');
 function apXlsxSheets(add, ctx, nn) {
   const p = S.proj, ex = (o, k) => ctx.fileOut.filter(x => x.kind === 'photo' && x.m === o).map(x => x[k]).join(', ');
-  const unitNote = s => (s.src.kind === 'dxf' ? 'CAD 좌표' : s.calib ? '보정 좌표(mm)' : '종이 좌표(mm, 미보정)');
+  const unitNote = s => (s.src.kind === 'dxf' ? 'CAD 좌표' : s.calib ? '보정 좌표(mm)' : s.src.kind === 'pdf' ? '종이 좌표(mm, 미보정)' : '이미지 좌표(픽셀, 미보정)');
   const ds = [];
   for (const s of p.sheets) for (const a of apOfKind(s, 'defect')) {
     const T = realXform(s); const [x, y] = T(a.tx != null ? a.tx : a.x, a.ty != null ? a.ty : a.y);
@@ -6122,11 +6414,18 @@ function initPWA() {
   document.addEventListener('pointerdown', e => { if (e.pointerType !== 'mouse') lockLandscapeByTouch(); }, true);
   document.addEventListener('fullscreenchange', () => { if (!document.fullscreenElement) ORI.ok = false; else lockLandscape(); });   // 전체 화면이 풀리면 고정도 풀림 → 다음 터치 때 다시
   document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') { ORI.ok = false; lockLandscape(); } });   // 카메라·파일 선택에서 돌아왔을 때
+  // 저장공간 자동 삭제 방지 요청 (설치 앱·파일로 연 경우 모두)
+  try { if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => { }); } catch (e) { /* */ }
   if (!IS_PWA_BUILD || !('serviceWorker' in navigator) || !window.isSecureContext) return;
-  try { if (navigator.storage && navigator.storage.persist) navigator.storage.persist(); } catch (e) { /* 저장공간 자동 삭제 방지 요청 */ }
   const hadController = !!navigator.serviceWorker.controller;
   let reloading = false;
-  navigator.serviceWorker.addEventListener('controllerchange', () => { if (!hadController || reloading) return; reloading = true; location.reload(); });
+  // 다른 창에서 업데이트를 적용해 이 창도 새 버전으로 바뀔 때: 먼저 저장하고 새로고침 (입력 중이던 내용 보존)
+  navigator.serviceWorker.addEventListener('controllerchange', async () => {
+    if (!hadController || reloading) return; reloading = true;
+    const cover = h('div', { class: 'dlg-back' }, h('div', { class: 'dlg' }, h('h2', null, '새 버전으로 바꾸는 중…'), h('p', { style: { margin: 0 } }, '입력한 내용을 저장하고 다시 엽니다.'))); document.body.append(cover); try { if (document.activeElement) document.activeElement.blur(); $('#app').inert = true; } catch (e) { /* */ }   // 다시 열리는 동안 입력 막기 (글자판 입력 포함)
+    try { saveSoon.cancel(); await saveProjectNow(); } catch (e) { /* */ }
+    if (!SAVE.dirty && !SAVE.failed) location.reload(); else { cover.remove(); $('#app').inert = false; toast('새 버전이 적용되었습니다. 저장을 마친 뒤 앱을 다시 열어 주세요.', { ms: 8000 }); }
+  });
   navigator.serviceWorker.register('sw.js').then(reg => {
     const offer = () => { if (reg.waiting && navigator.serviceWorker.controller) showUpdateBar(reg); };
     offer();
@@ -6154,7 +6453,11 @@ function showUpdateBar(reg) {
   later.onclick = () => back.remove();
   apply.onclick = async () => {
     apply.disabled = true; later.disabled = true; apply.textContent = '업데이트 중…';
-    try { saveSoon.flush(); if (typeof saveProjectNow === 'function') await saveProjectNow(); } catch (e) { /* */ }
+    let ok = true; try { saveSoon.cancel(); ok = await saveProjectNow(); } catch (e) { ok = false; }
+    if (!ok) {   // 저장 실패 중에는 바로 새로고침하지 않음 (저장 안 된 변경이 사라질 수 있음)
+      back.remove();
+      if (!await confirmDlg('저장하지 못했습니다', '최근 변경을 태블릿에 저장하지 못했습니다. 지금 업데이트하면 저장 안 된 변경이 사라질 수 있습니다. 먼저 화면 위 빨간 띠를 눌러 다시 저장해 보세요.', '그래도 업데이트', true)) return;
+    }
     if (reg.waiting) reg.waiting.postMessage({ type: 'SKIP_WAITING' }); else location.reload();
   };
   document.body.append(back);
@@ -6200,7 +6503,7 @@ async function createSampleProject() {
   s.strokes.push({ id: uid(), pts: [5600, -2600, 6100, -2900, 6700, -2700, 7300, -3000, 7900, -2800], color: '#2c6cc4' });
   s.texts.push({ id: uid(), x: 5600, y: -3150, s: '슬래브 균열', color: '#2c6cc4' });
   p.sheets.push(s); await IDB.put('projects', p.id, p);
-  makeSheetThumb(s).then(() => IDB.put('projects', p.id, p)).catch(() => { });
+  makeSheetThumb(s).then(() => { if (S.proj && S.proj.id === p.id) touch(); else return IDB.put('projects', p.id, p); }).catch(() => { });
   return p;
 }
 
@@ -6215,13 +6518,16 @@ async function init() {
   $('#btnImportProj').onclick = importProjectZip;
   $('#btnAddSheet').onclick = () => addSheetsFlow();
   $('#btnShotSheet').onclick = shotSheetFlow;
-  window.addEventListener('pagehide', () => saveSoon.flush());
-  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') saveSoon.flush(); });
+  window.addEventListener('pagehide', () => flushOnLeave());
+  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') flushOnLeave(); else checkNewerElsewhere(); });
+  // 저장 안 한 변경이 있는데 새로고침·닫기 → 브라우저가 한 번 물어봄
+  window.addEventListener('beforeunload', e => { if (IDB.mem || SAVE.dirty || SAVE.busy || SAVE.failed) { if (!IDB.mem) flushOnLeave(); e.preventDefault(); e.returnValue = ''; } });
   await IDB.open();
   await loadProjectList();
   if (!S.list.length) { try { const p = await createSampleProject(); S.list = [normProject(p)]; } catch (e) { console.error(e); } }
   const last = lsGet('lastProject'); const p = S.list.find(q => q.id === last) || S.list[0];
   if (p) await setProject(p);
+  { const t = +(lsGet('shotPending') || 0); if (t && Date.now() - t < 20 * 60e3) { shotPending(false); setTimeout(() => dialog({ title: '사진을 확인하세요', body: h('p', { style: { margin: 0 } }, '사진을 찍는 동안 앱이 다시 시작되었습니다 (태블릿 메모리 부족). 마지막에 찍은 사진이 붙지 않았을 수 있으니 해당 위치의 사진을 확인하고, 없으면 다시 찍어 주세요.') }), 600); } else if (t) shotPending(false); }
   const lv = lsGet('lastView');
   showView(lv && ($('#v-' + lv) || lv === 'appear') ? lv : (p && p.sheets.length ? 'survey' : 'projects'));
 }
