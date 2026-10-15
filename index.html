@@ -450,6 +450,8 @@ input.in.np-f.np-on { border-color: #f08a00; box-shadow: 0 0 0 2px rgba(240,138,
 @keyframes saveAlertPulse { 50% { box-shadow: 0 6px 22px rgba(198,40,40,.7); } }
 /* 당겨서 새로고침 막기 (입력 중 실수로 새로고침 방지) */
 html, body { overscroll-behavior: none; }
+/* 화면 전체가 손가락 두 개로 확대돼 버리는 일 막기 (확대는 도면 안에서만) – 목록·상세창 스크롤은 그대로 */
+html { touch-action: pan-x pan-y; }
 
 </style>
 </head><body>
@@ -710,7 +712,7 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
 
 </script>
 <script>
-const APP_VERSION = '2026.10.14-1859';
+const APP_VERSION = '2026.10.16-0856';
 'use strict';
 /* ================= 기본 유틸 ================= */
 const $ = (s, r = document) => r.querySelector(s);
@@ -2385,6 +2387,11 @@ function initViewer() {
   fg.addEventListener('pointermove', onMove);
   fg.addEventListener('pointerup', onUp);
   fg.addEventListener('pointercancel', onCancel);
+  fg.addEventListener('lostpointercapture', onLostCapture);
+  // 끝 신호(손 뗌)를 못 받은 채 남은 손가락·펜 상태 정리: 앱 전환·전체 화면 전환·창 포커스 잃음
+  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') resetPointers(); });
+  window.addEventListener('blur', () => resetPointers());
+  document.addEventListener('fullscreenchange', () => resetPointers());
   fg.addEventListener('wheel', onWheel, { passive: false });
   fg.addEventListener('contextmenu', e => e.preventDefault());
   new ResizeObserver(resizeStage).observe(V.stage);
@@ -2490,6 +2497,13 @@ function renderFg() {
     }
   }
   if (V.calib) for (const [i, w] of V.calib.pts.entries()) { const [x, y] = w2s(w[0], w[1]); c.strokeStyle = '#1d6fd1'; c.lineWidth = 2; c.beginPath(); c.moveTo(x - 14, y); c.lineTo(x + 14, y); c.moveTo(x, y - 14); c.lineTo(x, y + 14); c.stroke(); c.font = `700 14px ${UI_FONT}`; c.fillStyle = '#1d6fd1'; c.fillText(i ? 'B' : 'A', x + 8, y - 8); }
+  if (V.drag && V.drag.kind === 'whole') {   // 통째로 옮기는 중: 번호~화살촉을 주황 점선으로 묶어 표시
+    const m = V.drag.m, Rw = markerRW(V.sheet, V.src), [nx, ny] = w2s(...markerNumXY(m, Rw)), rr = Math.max(R, 9) + 7;
+    c.save(); c.strokeStyle = '#f08a00'; c.lineWidth = 3; c.setLineDash([7, 5]);
+    c.beginPath(); c.arc(nx, ny, rr, 0, Math.PI * 2); c.stroke();
+    if (m.tx != null) { const [px, py] = w2s(m.tx, m.ty); c.beginPath(); c.arc(px, py, 10, 0, Math.PI * 2); c.stroke(); c.beginPath(); c.moveTo(nx, ny); c.lineTo(px, py); c.globalAlpha = 0.5; c.stroke(); }
+    c.restore();
+  }
   if (V.drag && V.drag.kind === 'shape' && V.down && V.down.moved) { const g = shapeFromDrag(V.drag.a, V.drag.b, true); if (g) drawShape(c, g, V.view, { R, penW: Math.max(0.8, R * 0.13), preview: true, tags: curShapeV() }, false); }
   syncShapeBarLazy();
   if (V.drag && V.drag.kind === 'rect') { const a = V.drag.a, b = V.drag.b; c.strokeStyle = '#1d6fd1'; c.setLineDash([6, 4]); c.lineWidth = 2; c.strokeRect(a.x, a.y, b.x - a.x, b.y - a.y); c.setLineDash([]); c.fillStyle = 'rgba(29,111,209,.08)'; c.fillRect(a.x, a.y, b.x - a.x, b.y - a.y); }
@@ -2528,6 +2542,10 @@ function onDown(e) {
   const pt = evPt(e), type = e.pointerType;
   if (type === 'pen') V.lastPen = performance.now();
   if (type === 'touch') {
+    // 첫 손가락(isPrimary)인데 남아 있는 손가락이 있으면 = 예전 터치의 끝 신호를 못 받은 것 → 정리 (안 하면 유령 손가락 때문에 화면 이동이 안 됨)
+    if (e.isPrimary && (V.pointers.size || (V.gesture && !V.gesture.mouse))) { V.pointers.clear(); V.gesture = null; }
+    if (V.drawPid != null && V.drawType === 'touch' && e.isPrimary) finishStaleDraw();
+    if (V.drawPid != null && V.drawType !== 'touch' && performance.now() - (V.lastDrawEv || 0) > 2500) finishStaleDraw();   // 펜 끝 신호가 사라진 경우
     if (V.drawPid != null && V.drawType !== 'touch') return;           // 펜으로 그리는 중 손바닥
     if (performance.now() - V.lastPen < 450) return;                    // 펜이 떠 있는 동안 손바닥
     V.pointers.set(e.pointerId, { x: pt.x, y: pt.y });
@@ -2538,22 +2556,44 @@ function onDown(e) {
     return;
   }
   if (type === 'mouse' && e.button !== 0) { V.gesture = { kind: 'pan', last: pt, mouse: true, moved: true }; try { V.fg.setPointerCapture(e.pointerId); } catch (er) { /* */ } return; }
+  if (V.drawPid != null && V.drawType === type) finishStaleDraw();   // 펜·마우스가 새로 눌렸다 = 앞 획은 이미 끝났는데 신호를 못 받은 것
   if (V.drawPid != null) return;
   try { V.fg.setPointerCapture(e.pointerId); } catch (er) { /* */ }
   startDraw(e, pt);
 }
 function startDraw(e, pt) {
-  V.drawPid = e.pointerId; V.drawType = e.pointerType;
+  V.drawPid = e.pointerId; V.drawType = e.pointerType; V.lastDrawEv = performance.now(); V.lastDrawPt = pt;
   V.toolSave = null;
   if (e.pointerType === 'pen' && (e.button === 2 || e.button === 5 || (e.buttons & 2) || (e.buttons & 32))) { V.toolSave = V.tool; V.tool = 'erase'; }
   toolDown(pt); requestRender(false);
 }
-function cancelDraw() { V.drawPid = null; V.drawType = null; V.stroke = null; V.drag = null; if (V.toolSave) { V.tool = V.toolSave; V.toolSave = null; } requestRender(false); }
+function cancelDraw() { clearTimeout(V.lpTimer); V.drawPid = null; V.drawType = null; V.stroke = null; V.drag = null; if (V.toolSave) { V.tool = V.toolSave; V.toolSave = null; } requestRender(false); }
+/** 끝 신호 없이 남은 그리기 정리: 옮기던 것은 마무리(저장), 긋던 선은 버림 */
+function finishStaleDraw() {
+  const d = V.drag, pt = V.lastDrawPt || (V.down && V.down.pt);
+  if (d && pt && ['marker', 'aim', 'tip', 'wend', 'move', 'gres', 'whole', 'erase', 'pan'].includes(d.kind)) {
+    clearTimeout(V.lpTimer); V.drawPid = null; V.drawType = null;
+    try { toolUp(pt); } catch (er) { V.drag = null; }
+    if (V.toolSave) { V.tool = V.toolSave; V.toolSave = null; }
+    requestRender(false);
+  } else cancelDraw();
+}
+/** 손가락·펜 상태 모두 초기화 */
+function resetPointers() {
+  if (V.pointers.size || (V.gesture && !V.gesture.mouse)) { V.pointers.clear(); V.gesture = null; endGesture(); }
+  if (V.drawPid != null) finishStaleDraw();
+}
+function onLostCapture(e) {   // 손을 떼지 않았는데 캡처를 잃음 (요소 숨김·전체 화면 전환 등) – 정상 손뗌 뒤에도 오지만 그땐 이미 정리돼 있음
+  if (e.pointerId === V.drawPid) finishStaleDraw();
+  else if (V.pointers.has(e.pointerId)) { V.pointers.delete(e.pointerId); if (!V.pointers.size) { V.gesture = null; endGesture(); } }
+}
 function onMove(e) {
   if (e.pointerType === 'pen') V.lastPen = performance.now();
   if (e.pointerId === V.drawPid) {
+    if (e.pointerType === 'pen' && e.buttons === 0) { onUp(e); return; }   // 펜이 떨어져 떠 있는데 손뗌 신호가 없었던 경우
+    V.lastDrawEv = performance.now();
     const evs = (e.getCoalescedEvents && e.getCoalescedEvents()) || [];
-    for (const ce of (evs.length ? evs : [e])) toolMove(evPt(ce));
+    for (const ce of (evs.length ? evs : [e])) { const p = evPt(ce); V.lastDrawPt = p; toolMove(p); }
     requestRender(false); return;
   }
   const pt = evPt(e);
@@ -2572,7 +2612,7 @@ function onMove(e) {
 }
 function onUp(e) {
   const pt = evPt(e);
-  if (e.pointerId === V.drawPid) { V.drawPid = null; V.drawType = null; toolUp(pt); if (V.toolSave) { V.tool = V.toolSave; V.toolSave = null; } requestRender(false); return; }
+  if (e.pointerId === V.drawPid) { clearTimeout(V.lpTimer); V.drawPid = null; V.drawType = null; toolUp(pt); if (V.toolSave) { V.tool = V.toolSave; V.toolSave = null; } requestRender(false); return; }
   if (V.pointers.has(e.pointerId)) {
     V.pointers.delete(e.pointerId);
     const g = V.gesture;
@@ -2671,9 +2711,9 @@ function toolDown(pt) {
   if (t === 'arrow' || t === 'select') {
     const sm = selMarker();
     // 화살촉 누르고 끌기: 위치 표시 도구 = 시작점(화살촉) 고정, 방향만 다시 / 선택·이동 도구 = 화살촉 옮기기
-    if (sm && sm.tx != null && hitTip(sm, pt)) { V.drag = t === 'arrow' ? { kind: 'aim', m: sm, pushed: false } : { kind: 'tip', m: sm, pushed: false, n0: [sm.x, sm.y] }; return; }
+    if (sm && sm.tx != null && hitTip(sm, pt)) { V.drag = t === 'arrow' ? { kind: 'aim', m: sm, pushed: false } : { kind: 'tip', m: sm, pushed: false, n0: [sm.x, sm.y] }; armWholeMove(V.drag, pt); return; }
     const m = hitMarker(pt);
-    if (m) { const [cx, cy] = w2s(m.x, m.y); V.drag = { kind: 'marker', m, off: { x: pt.x - cx, y: pt.y - cy }, pushed: false }; return; }
+    if (m) { const [cx, cy] = w2s(m.x, m.y); V.drag = { kind: 'marker', m, off: { x: pt.x - cx, y: pt.y - cy }, pushed: false }; armWholeMove(V.drag, pt); return; }
     if (t === 'select') {
       const sw = selWall(); if (sw) { const k = hitWallEnd(sw, pt); if (k >= 0) { V.drag = { kind: 'wend', w: sw, k, pushed: false }; return; } }
       const w = hitWall(pt); if (w) { V.sel = { type: 'w', id: w.id }; V.drag = { kind: 'move', o: w, pushed: false, last: pt }; return; }
@@ -2687,9 +2727,27 @@ function toolDown(pt) {
   }
   if (t === 'pen') V.stroke = { pts: [pt], kind: 'pen' };
 }
+/** 위치 표시를 꾹 누르면(0.45초, 움직이지 않고) 번호·화살표를 모양 그대로 함께 옮기기 */
+const LONG_PRESS_MS = 450;
+function armWholeMove(d, pt) {
+  clearTimeout(V.lpTimer);
+  V.lpTimer = setTimeout(() => {
+    if (V.drag !== d || (V.down && V.down.moved)) return;
+    pushUndo(); d.kind = 'whole'; d.pushed = true; d.last = V.lastDrawPt || pt; d.wholeMoved = false;
+    V.sel = { type: 'm', id: d.m.id };
+    try { if (navigator.vibrate) navigator.vibrate(25); } catch (e) { /* */ }
+    toast('번호·화살표를 함께 옮깁니다', { ms: 1400 });
+    requestRender(false);
+  }, LONG_PRESS_MS);
+}
 function toolMove(pt) {
   const d = V.drag;
-  if (V.down && !V.down.moved && Math.hypot(pt.x - V.down.pt.x, pt.y - V.down.pt.y) > 6) V.down.moved = true;
+  if (d && d.kind === 'whole') {   // 통째로 옮기기: 번호·화살촉을 같은 만큼
+    const dx = (pt.x - d.last.x) / V.view.s, dy = (pt.y - d.last.y) / V.view.s; d.last = pt;
+    if (dx || dy) { d.m.x += dx; d.m.y += dy; if (d.m.tx != null) { d.m.tx += dx; d.m.ty += dy; } d.wholeMoved = true; }
+    return;
+  }
+  if (V.down && !V.down.moved && Math.hypot(pt.x - V.down.pt.x, pt.y - V.down.pt.y) > 6) { V.down.moved = true; clearTimeout(V.lpTimer); }
   if (d) {
     const mv = V.down && V.down.moved;
     if (d.kind === 'marker' && mv) { if (!d.pushed) { pushUndo(); d.pushed = true; } let w = s2w(pt.x - d.off.x, pt.y - d.off.y); if (d.m.tx != null) w = snapArrow(d.m.tx, d.m.ty, w[0], w[1]); d.m.x = w[0]; d.m.y = w[1]; }
@@ -2718,7 +2776,8 @@ function toolMove(pt) {
 function toolUp(pt) {
   const d = V.drag; V.drag = null; const moved = V.down && V.down.moved;
   if (d) {
-    if (d.kind === 'marker') { if (!moved) { V.sel = { type: 'm', id: d.m.id }; openPanel(d.m); } else touchSheet(); }
+    if (d.kind === 'whole') { if (d.wholeMoved) touchSheet(); else requestRender(false); }
+    else if (d.kind === 'marker') { if (!moved) { V.sel = { type: 'm', id: d.m.id }; openPanel(d.m); } else touchSheet(); }
     else if (d.kind === 'tip' || d.kind === 'aim' || d.kind === 'move' || d.kind === 'wend') { if (moved) touchSheet(); else if (d.kind === 'move' && d.o.s != null) editText(d.o); else if (d.kind === 'move' && isWall(d.o)) openPanel(d.o); else if (d.kind === 'wend') openPanel(d.w); }
     else if (d.kind === 'pan') endGesture();
     else if (d.kind === 'erase') { if (d.pushed) touchSheet(); }
@@ -6395,9 +6454,13 @@ function lockLandscape(force) {
   return screen.orientation.lock('landscape').then(() => { ORI.ok = true; ORI.err = ''; return true; }, e => { ORI.ok = false; ORI.err = (e && (e.name + ': ' + e.message)) || String(e); return false; });
 }
 /** 사용자가 화면을 누른 순간(전체 화면 요청이 허용되는 때)에 고정 */
+let ORI_LAST_TRY = 0;
 function lockLandscapeByTouch(force) {
   if ((!ORI_TABLET() && !force) || ORI.ok) return;
+  const now = Date.now(); if (!force && now - ORI_LAST_TRY < 5000) return; ORI_LAST_TRY = now;   // 안 될 때 터치마다 계속 시도하지 않게
   const go = () => lockLandscape(true);
+  // 설치한 앱(전체 화면 창)은 전체 화면 전환 없이 고정만 – 전환하는 순간 터치가 끊겨 화면 이동(스크롤)이 멈추는 문제 방지
+  if (!force && IS_APP_WINDOW()) { go(); return; }
   if (!document.fullscreenElement && document.documentElement.requestFullscreen) {
     document.documentElement.requestFullscreen({ navigationUI: 'hide' }).then(go, e => { ORI.err = '전체 화면 전환 실패 – ' + ((e && e.message) || e); });
   } else go();
@@ -6411,7 +6474,8 @@ function oriStatusText() {
 function initPWA() {
   const v = $('#appVer'); if (v) v.textContent = '버전 ' + APP_VERSION;
   lockLandscape();
-  document.addEventListener('pointerdown', e => { if (e.pointerType !== 'mouse') lockLandscapeByTouch(); }, true);
+  // 손을 뗄 때 고정 시도 (누르는 순간 전체 화면으로 바뀌면 그 터치의 끝 신호가 사라져 화면 이동이 멈출 수 있음)
+  document.addEventListener('pointerup', e => { if (e.pointerType !== 'mouse') setTimeout(() => lockLandscapeByTouch(), 0); }, true);
   document.addEventListener('fullscreenchange', () => { if (!document.fullscreenElement) ORI.ok = false; else lockLandscape(); });   // 전체 화면이 풀리면 고정도 풀림 → 다음 터치 때 다시
   document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') { ORI.ok = false; lockLandscape(); } });   // 카메라·파일 선택에서 돌아왔을 때
   // 저장공간 자동 삭제 방지 요청 (설치 앱·파일로 연 경우 모두)

@@ -1,5 +1,5 @@
 /* Smart Field – 서비스 워커: 앱 파일을 태블릿에 보관(오프라인 실행) · 새 버전은 사용자가 '적용'을 누를 때 교체 */
-const VERSION = '2026.10.14-1859';
+const VERSION = '2026.10.16-0856';
 const CACHE = 'yajang-' + VERSION, FONT_CACHE = 'yajang-fonts';
 const CORE = ['./', './index.html', './manifest.webmanifest', './icon-192.png', './icon-512.png', './icon-maskable-512.png'];
 self.addEventListener('install', e => {
