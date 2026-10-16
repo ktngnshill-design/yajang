@@ -712,7 +712,7 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
 
 </script>
 <script>
-const APP_VERSION = '2026.10.16-0856';
+const APP_VERSION = '2026.10.16-0912';
 'use strict';
 /* ================= 기본 유틸 ================= */
 const $ = (s, r = document) => r.querySelector(s);
@@ -2538,16 +2538,16 @@ function endGesture() { clearTimeout(V.gTimer); V.gestureActive = false; V.bgDir
 /* ================= 입력 ================= */
 function evPt(e) { const r = V.fg.getBoundingClientRect(); return { x: e.clientX - r.left, y: e.clientY - r.top }; }
 function onDown(e) {
-  if (!V.sheet || !V.src) return;
+  if (!V.sheet || !V.src) { dlog('ign', V.sheet ? 'no-src' : 'no-sheet'); return; }
   const pt = evPt(e), type = e.pointerType;
   if (type === 'pen') V.lastPen = performance.now();
   if (type === 'touch') {
     // 첫 손가락(isPrimary)인데 남아 있는 손가락이 있으면 = 예전 터치의 끝 신호를 못 받은 것 → 정리 (안 하면 유령 손가락 때문에 화면 이동이 안 됨)
-    if (e.isPrimary && (V.pointers.size || (V.gesture && !V.gesture.mouse))) { V.pointers.clear(); V.gesture = null; }
+    if (e.isPrimary && (V.pointers.size || (V.gesture && !V.gesture.mouse))) { dlog('ghost', [...V.pointers.keys()]); V.pointers.clear(); V.gesture = null; }
     if (V.drawPid != null && V.drawType === 'touch' && e.isPrimary) finishStaleDraw();
     if (V.drawPid != null && V.drawType !== 'touch' && performance.now() - (V.lastDrawEv || 0) > 2500) finishStaleDraw();   // 펜 끝 신호가 사라진 경우
-    if (V.drawPid != null && V.drawType !== 'touch') return;           // 펜으로 그리는 중 손바닥
-    if (performance.now() - V.lastPen < 450) return;                    // 펜이 떠 있는 동안 손바닥
+    if (V.drawPid != null && V.drawType !== 'touch') { dlog('ign', 'pen-drawing'); return; }           // 펜으로 그리는 중 손바닥
+    if (performance.now() - V.lastPen < 450) { dlog('ign', 'pen-near'); return; }                    // 펜이 떠 있는 동안 손바닥
     V.pointers.set(e.pointerId, { x: pt.x, y: pt.y });
     try { V.fg.setPointerCapture(e.pointerId); } catch (er) { /* */ }
     if (V.opts.finger && V.pointers.size === 1 && V.drawPid == null && V.tool !== 'select') { startDraw(e, pt); return; }
@@ -2570,6 +2570,7 @@ function startDraw(e, pt) {
 function cancelDraw() { clearTimeout(V.lpTimer); V.drawPid = null; V.drawType = null; V.stroke = null; V.drag = null; if (V.toolSave) { V.tool = V.toolSave; V.toolSave = null; } requestRender(false); }
 /** 끝 신호 없이 남은 그리기 정리: 옮기던 것은 마무리(저장), 긋던 선은 버림 */
 function finishStaleDraw() {
+  dlog('stale-draw', { type: V.drawType, drag: V.drag && V.drag.kind, stroke: !!V.stroke });
   const d = V.drag, pt = V.lastDrawPt || (V.down && V.down.pt);
   if (d && pt && ['marker', 'aim', 'tip', 'wend', 'move', 'gres', 'whole', 'erase', 'pan'].includes(d.kind)) {
     clearTimeout(V.lpTimer); V.drawPid = null; V.drawType = null;
@@ -2580,7 +2581,7 @@ function finishStaleDraw() {
 }
 /** 손가락·펜 상태 모두 초기화 */
 function resetPointers() {
-  if (V.pointers.size || (V.gesture && !V.gesture.mouse)) { V.pointers.clear(); V.gesture = null; endGesture(); }
+  if (V.pointers.size || (V.gesture && !V.gesture.mouse)) { dlog('reset-ptrs', [...V.pointers.keys()]); V.pointers.clear(); V.gesture = null; endGesture(); }
   if (V.drawPid != null) finishStaleDraw();
 }
 function onLostCapture(e) {   // 손을 떼지 않았는데 캡처를 잃음 (요소 숨김·전체 화면 전환 등) – 정상 손뗌 뒤에도 오지만 그땐 이미 정리돼 있음
@@ -3109,6 +3110,7 @@ function openMoreMenu(ev) {
     it('부재 라벨 표시', o.labels ? '켜짐' : '꺼짐', () => { o.labels = !o.labels; saveOpts(); requestRender(false); }),
     it('손가락으로도 그리기', o.finger ? '켜짐' : '꺼짐', () => { o.finger = !o.finger; saveOpts(); toast(o.finger ? '손가락 한 개로 그리고, 두 손가락으로 이동·확대합니다' : 'S펜으로 그리고, 손가락으로 이동·확대합니다'); }),
     typeof ORI_MENU === 'function' && ORI_MENU() ? it('가로 화면 고정', oriStatusText(), () => { ORI.ok = false; lockLandscapeByTouch(true); setTimeout(() => toast('가로 화면 고정: ' + oriStatusText(), { ms: 4000 }), 700); }) : null,
+    it('문제 기록 저장', '멈춤 신고용', () => diagExport()),
     document.fullscreenEnabled && !IS_APP_WINDOW() ? it('전체 화면', document.fullscreenElement ? '켜짐' : '꺼짐', () => { (document.fullscreenElement ? document.exitFullscreen() : document.documentElement.requestFullscreen()).catch(() => toast('이 화면에서는 전체 화면을 쓸 수 없습니다')); }) : null,
   );
   document.body.append(menu);
@@ -3221,10 +3223,13 @@ async function openSheet(id, focusId) {
   if (V.panelM && !sheetHas(sh, V.panelM)) closePanel();
   normSheetAp(sh);
   V.sel = null;
-  const load = $('#stageLoading'); load.hidden = false;
+  const load = $('#stageLoading'); load.textContent = '도면을 여는 중…'; load.hidden = false;
+  // 12초가 지나도 안 열리면 '다시 시도' (멈춘 것처럼 보이지 않게)
+  const slow = setTimeout(() => { if (V.sheet !== sh || load.hidden) return; dlog('load-slow', sh.name); load.textContent = ''; load.append(h('div', { style: { textAlign: 'center' } }, h('p', { style: { margin: '0 0 10px' } }, '도면을 여는 데 오래 걸립니다'), h('button', { class: 'btn pri', type: 'button', onclick: () => { SRC_LOADING.delete(srcKeyOf(sh)); openSheet(sh.id); } }, '다시 시도'))); }, 12000);
   let src = null;
-  try { src = await loadSource(sh); } catch (e) { toast('도면을 열지 못했습니다: ' + e.message, { ms: 6000 }); }
-  load.hidden = true;
+  try { src = await loadSource(sh); } catch (e) { dlog('load-fail', String(e && e.message)); toast('도면을 열지 못했습니다: ' + e.message, { ms: 6000 }); }
+  clearTimeout(slow);
+  if (V.sheet === sh) { load.hidden = true; load.textContent = '도면을 여는 중…'; }
   if (V.sheet !== sh) return;
   V.src = src; V.bgView = null; V.hiView = null; V.hi.hidden = true;
   const b = src ? sheetBounds(sh, src) : null;
@@ -6528,6 +6533,67 @@ function showUpdateBar(reg) {
   setTimeout(() => apply.focus(), 50);
 }
 
+/* ================= 진단 기록 (현장에서 드물게 생기는 멈춤의 원인 찾기용) =================
+ * 최근 터치·펜 입력과 화면 상태 600건을 기기 안(localStorage)에 계속 남김. 앱을 껐다 켜도 '직전 실행' 기록이 남아 있음.
+ * 더보기 › 문제 기록 저장 → 텍스트 파일로 저장 (멈춘 뒤 껐다 켰어도 직전 기록이 같이 들어감). 조사 내용은 들어가지 않음 */
+const DIAG = { buf: [], max: 600, dirty: false, t0: Date.now() };
+function dlog(type, o) {
+  try { DIAG.buf.push([Date.now() - DIAG.t0, type, o == null ? '' : o]); if (DIAG.buf.length > DIAG.max) DIAG.buf.splice(0, DIAG.buf.length - DIAG.max); DIAG.dirty = true; } catch (e) { /* */ }
+}
+function diagState() {
+  try {
+    return {
+      view: S.view, mode: V.mode, tool: V.tool, ptrs: V.pointers ? [...V.pointers.keys()] : [], g: V.gesture ? V.gesture.kind : '', draw: V.drawPid != null ? `${V.drawType}:${V.drawPid}` : '',
+      drag: V.drag ? V.drag.kind : '', penAgo: Math.round(performance.now() - (V.lastPen || 0)), src: !!V.src, load: !$('#stageLoading').hidden,
+      dlg: $$('#dlg-root .dlg-back').length + ($('#updDlg') ? 1 : 0), panel: !!V.panelM, peek: typeof PK !== 'undefined' && !!PK.open, inert: !!($('#app') && $('#app').inert),
+      fs: !!document.fullscreenElement, vis: document.visibilityState, vw: `${innerWidth}x${innerHeight}`, zoom: (window.visualViewport && Math.round(visualViewport.scale * 100) / 100) || 1,
+    };
+  } catch (e) { return { err: String(e) }; }
+}
+function diagSave() { if (!DIAG.dirty) return; DIAG.dirty = false; lsSet('diagCur', JSON.stringify({ t0: DIAG.t0, ver: typeof APP_VERSION !== 'undefined' ? APP_VERSION : '', buf: DIAG.buf })); }
+function initDiag() {
+  const prev = lsGet('diagCur'); if (prev) lsSet('diagPrev', prev);   // 직전 실행 기록 보관
+  lsSet('diagCur', '');
+  const tgt = e => { const t = e.target; if (!t || !t.tagName) return ''; return t.tagName.toLowerCase() + (t.id ? '#' + t.id : '') + (t.classList && t.classList.length ? '.' + [...t.classList].slice(0, 2).join('.') : ''); };
+  const pe = e => ({ t: (e.pointerType || '?')[0], id: e.pointerId, p: e.isPrimary ? 1 : 0, b: e.buttons, x: Math.round(e.clientX), y: Math.round(e.clientY), el: tgt(e) });
+  for (const ty of ['pointerdown', 'pointerup', 'pointercancel']) document.addEventListener(ty, e => dlog(ty.slice(7), pe(e)), true);
+  let lastMv = 0;
+  document.addEventListener('pointermove', e => { const n = performance.now(); if (e.buttons && n - lastMv > 400) { lastMv = n; dlog('move', pe(e)); } }, true);   // 움직임은 0.4초에 한 번만
+  document.addEventListener('touchcancel', () => dlog('touchcancel'), true);
+  if (V.fg) { V.fg.addEventListener('lostpointercapture', e => dlog('lostcap', { id: e.pointerId })); V.fg.addEventListener('pointerdown', () => dlog('st', diagState())); }
+  document.addEventListener('visibilitychange', () => { dlog('vis', document.visibilityState); if (document.visibilityState === 'hidden') diagSave(); });
+  window.addEventListener('blur', () => dlog('blur')); window.addEventListener('focus', () => dlog('focus'));
+  document.addEventListener('fullscreenchange', () => dlog('fs', !!document.fullscreenElement));
+  window.addEventListener('resize', () => dlog('resize', `${innerWidth}x${innerHeight}`));
+  if (window.visualViewport) visualViewport.addEventListener('resize', () => { if (Math.abs(visualViewport.scale - 1) > 0.01) dlog('pagezoom', Math.round(visualViewport.scale * 100) / 100); });
+  window.addEventListener('error', e => dlog('error', String(e.message || e).slice(0, 300)));
+  window.addEventListener('unhandledrejection', e => dlog('reject', String((e.reason && (e.reason.message || e.reason)) || '').slice(0, 300)));
+  window.addEventListener('pagehide', diagSave);
+  setInterval(diagSave, 3000);
+  dlog('start', { ver: APP_VERSION, ua: navigator.userAgent, mem: navigator.deviceMemory || '', dpr: devicePixelRatio, scr: `${screen.width}x${screen.height}`, app: typeof IS_APP_WINDOW === 'function' && IS_APP_WINDOW(), touch: navigator.maxTouchPoints });
+}
+/** 더보기 › 문제 기록 저장: 지금 상태 + 화면을 가리는 것 + 직전·지금 실행 기록을 텍스트로 저장, 그다음 터치·펜 상태 정리 */
+async function diagExport() {
+  dlog('report', diagState());
+  const at = (x, y) => { try { return document.elementsFromPoint(x, y).slice(0, 5).map(el => el.tagName.toLowerCase() + (el.id ? '#' + el.id : '') + (el.className && typeof el.className === 'string' ? '.' + el.className.split(' ').slice(0, 2).join('.') : '')).join(' > '); } catch (e) { return '?'; } };
+  const st = $('#stage'), r = st ? st.getBoundingClientRect() : null;
+  const fmt = raw => { if (!raw) return '(없음)\n'; try { const d = JSON.parse(raw); return `버전 ${d.ver} · 시작 ${new Date(d.t0).toLocaleString('ko-KR')}\n` + d.buf.map(([t, ty, o]) => `+${(t / 1000).toFixed(1)}s ${ty} ${typeof o === 'string' ? o : JSON.stringify(o)}`).join('\n') + '\n'; } catch (e) { return '(읽기 실패)\n'; } };
+  diagSave(); DIAG.dirty = true; diagSave();
+  const txt = [
+    `Smart Field 문제 기록 · ${new Date().toLocaleString('ko-KR')}`,
+    `버전 ${APP_VERSION} · ${navigator.userAgent}`,
+    `화면 ${screen.width}x${screen.height} · 창 ${innerWidth}x${innerHeight} · 배율 ${devicePixelRatio} · 메모리 ${navigator.deviceMemory || '?'}GB · 설치 앱 ${typeof IS_APP_WINDOW === 'function' && IS_APP_WINDOW()}`,
+    `지금 상태 ${JSON.stringify(diagState())}`,
+    r ? `도면 가운데를 덮은 것 ${at(r.left + r.width / 2, r.top + r.height / 2)}` : '',
+    `상세창 가운데 ${(() => { const p = $('#panel'); if (!p || p.hidden) return '(닫힘)'; const q = p.getBoundingClientRect(); return at(q.left + q.width / 2, q.top + q.height / 2); })()}`,
+    '', '===== 직전 실행 =====', fmt(lsGet('diagPrev')), '===== 이번 실행 =====', fmt(lsGet('diagCur')),
+  ].join('\n');
+  const d = new Date(), stamp = `${d.getFullYear()}${pad2(d.getMonth() + 1)}${pad2(d.getDate())}-${pad2(d.getHours())}${pad2(d.getMinutes())}`;
+  try { await saveFile(`SmartField_문제기록_${stamp}.txt`, new Blob([txt], { type: 'text/plain;charset=utf-8' })); } catch (e) { toast('기록 파일을 저장하지 못했습니다: ' + e.message); }
+  if (typeof resetPointers === 'function') resetPointers();
+  toast('문제 기록을 저장했습니다 (다운로드 폴더). 이 파일을 보내 주세요', { ms: 5000 });
+}
+
 /* ================= 연습용 예제 ================= */
 function sampleDXFText() {
   const E = DXFWriter(); const X = [0, 3200, 10700, 14300], Y = [0, 5200, 10000, 13400];
@@ -6574,7 +6640,7 @@ async function createSampleProject() {
 /* ================= 시작 ================= */
 async function init() {
   if (window.pdfjsLib) { try { pdfjsLib.GlobalWorkerOptions.workerSrc = PDF_WORKER_URL; } catch (e) { /* */ } }
-  initViewer(); initPWA();
+  initViewer(); initPWA(); try { initDiag(); } catch (e) { /* 진단 기록은 없어도 됨 */ }
   $$('.nav-i').forEach(b => b.addEventListener('click', () => showView(b.dataset.view)));
   $('#navToggle').onclick = () => { S.navCollapsed = !S.navCollapsed; lsSet('navCollapsed', S.navCollapsed ? '1' : ''); $('#navToggle').textContent = S.navCollapsed ? '메뉴 펴기' : '메뉴 접기'; $('#app').classList.toggle('rail', isStageView() || S.navCollapsed); };
   S.navCollapsed = !!lsGet('navCollapsed'); $('#navToggle').textContent = S.navCollapsed ? '메뉴 펴기' : '메뉴 접기';
