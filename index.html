@@ -712,7 +712,7 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
 
 </script>
 <script>
-const APP_VERSION = '2026.10.16-0923';
+const APP_VERSION = '2026.10.16-0928';
 'use strict';
 /* ================= 기본 유틸 ================= */
 const $ = (s, r = document) => r.querySelector(s);
@@ -6542,6 +6542,42 @@ function showUpdateBar(reg) {
   setTimeout(() => apply.focus(), 50);
 }
 
+/* ================= 스크롤 예비 동작 =================
+ * 레노버(ZUI) 등에서 세 손가락 시스템 제스처 뒤 크롬의 기본 스크롤이 멈추는 문제 (손가락 움직임은 앱에 계속 들어옴).
+ * 크롬이 스크롤을 맡으면 곧바로 pointercancel을 보내고 화면도 움직이므로, 취소 신호 없이 손가락이 30px 넘게 움직였는데 화면이 그대로면 = 크롬이 스크롤을 안 하는 상태 → 앱이 직접 스크롤 */
+function initScrollFallback() {
+  let F = null;
+  const scrollableOf = el => {
+    for (let e = el; e && e !== document.body && e !== document.documentElement; e = e.parentElement) {
+      if (e.id === 'stage' || e.tagName === 'CANVAS') return null;   // 도면·그리기판은 앱이 따로 처리
+      const cs = getComputedStyle(e);
+      const y = /(auto|scroll)/.test(cs.overflowY) && e.scrollHeight > e.clientHeight + 1, x = /(auto|scroll)/.test(cs.overflowX) && e.scrollWidth > e.clientWidth + 1;
+      if (x || y) return { el: e, x, y };
+    }
+    return null;
+  };
+  document.addEventListener('pointerdown', e => {
+    if (e.pointerType !== 'touch' || !e.isPrimary) { F = null; return; }
+    const sc = scrollableOf(e.target); F = sc ? { ...sc, id: e.pointerId, x0: e.clientX, y0: e.clientY, on: false, axis: '', st0: sc.el.scrollTop, sl0: sc.el.scrollLeft, t0: performance.now(), far: 0 } : null;
+  }, true);
+  document.addEventListener('pointermove', e => {
+    if (!F || e.pointerId !== F.id) return;
+    if (!F.on) {
+      const dx = e.clientX - F.x0, dy = e.clientY - F.y0; if (Math.hypot(dx, dy) < 30) return;
+      if (F.el.scrollTop !== F.st0 || F.el.scrollLeft !== F.sl0) { F = null; return; }   // 크롬이 이미 스크롤 중 = 정상 → 앱은 안 끼어듦
+      if (!F.far) { F.far = performance.now(); return; }   // 한 번 더 기다려 봄 (크롬 스크롤이 막 시작됐을 수 있음)
+      if (performance.now() - F.far < 60) return;
+      F.axis = Math.abs(dy) >= Math.abs(dx) ? (F.y ? 'y' : '') : (F.x ? 'x' : ''); if (!F.axis) { F = null; return; }
+      F.on = true; F.x0 = e.clientX; F.y0 = e.clientY; F.st = F.el.scrollTop; F.sl = F.el.scrollLeft;
+      if (typeof dlog === 'function') dlog('scroll-fallback', F.el.className || F.el.tagName);
+    }
+    if (F.axis === 'y') F.el.scrollTop = F.st - (e.clientY - F.y0); else F.el.scrollLeft = F.sl - (e.clientX - F.x0);
+  }, true);
+  const end = e => { if (F && e.pointerId === F.id) F = null; };
+  document.addEventListener('pointerup', end, true);
+  document.addEventListener('pointercancel', end, true);   // 크롬이 정상적으로 스크롤하면 여기로 와서 앱은 손 뗌
+}
+
 /* ================= 진단 기록 (현장에서 드물게 생기는 멈춤의 원인 찾기용) =================
  * 최근 터치·펜 입력과 화면 상태 600건을 기기 안(localStorage)에 계속 남김. 앱을 껐다 켜도 '직전 실행' 기록이 남아 있음.
  * 더보기 › 문제 기록 저장 → 텍스트 파일로 저장 (멈춘 뒤 껐다 켰어도 직전 기록이 같이 들어감). 조사 내용은 들어가지 않음 */
@@ -6650,6 +6686,7 @@ async function createSampleProject() {
 async function init() {
   if (window.pdfjsLib) { try { pdfjsLib.GlobalWorkerOptions.workerSrc = PDF_WORKER_URL; } catch (e) { /* */ } }
   initViewer(); initPWA(); try { initDiag(); } catch (e) { /* 진단 기록은 없어도 됨 */ }
+  try { initScrollFallback(); } catch (e) { /* */ }
   $$('.nav-i').forEach(b => b.addEventListener('click', () => showView(b.dataset.view)));
   $('#navToggle').onclick = () => { S.navCollapsed = !S.navCollapsed; lsSet('navCollapsed', S.navCollapsed ? '1' : ''); $('#navToggle').textContent = S.navCollapsed ? '메뉴 펴기' : '메뉴 접기'; $('#app').classList.toggle('rail', isStageView() || S.navCollapsed); };
   S.navCollapsed = !!lsGet('navCollapsed'); $('#navToggle').textContent = S.navCollapsed ? '메뉴 펴기' : '메뉴 접기';
