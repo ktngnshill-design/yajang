@@ -452,6 +452,19 @@ input.in.np-f.np-on { border-color: #f08a00; box-shadow: 0 0 0 2px rgba(240,138,
 html, body { overscroll-behavior: none; }
 /* 화면 전체가 손가락 두 개로 확대돼 버리는 일 막기 (확대는 도면 안에서만) – 목록·상세창 스크롤은 그대로 */
 html { touch-action: pan-x pan-y; }
+/* 프로젝트 잠금 (읽기 전용) */
+.lock-badge { display: none; align-items: center; gap: 6px; height: 44px; padding: 0 14px; border-radius: 10px; border: 1px solid #e7c98a; background: #fff6e2; color: #7a5300; font: inherit; font-size: 14px; font-weight: 700; cursor: pointer; white-space: nowrap; }
+body.locked .lock-badge { display: inline-flex; }
+body.locked #toolBtns, body.locked #penColors, body.locked #btnUndo, body.locked #btnRedo, body.locked #mStyle, body.locked #shapeBar, body.locked .ap-seg.thick, body.locked .ap-seg.snap { display: none !important; }
+body.locked #apBar .ap-seg:not(.thick):not(.snap) { pointer-events: none; opacity: .75; }
+.ro-note { margin: 0 14px; padding: 7px 10px; border-radius: 8px; background: #fff6e2; color: #7a5300; font-size: 13px; font-weight: 700; }
+#panel.ro .np-slot, #panel.ro .pn-foot .btn.danger { display: none !important; }
+#panel.ro canvas { pointer-events: none; }
+#panel.ro input:disabled, #panel.ro textarea:disabled, #panel.ro select:disabled, .ck-body.ro input:disabled, .ck-body.ro textarea:disabled, .ck-body.ro select:disabled { color: var(--navy-ink); -webkit-text-fill-color: var(--navy-ink); opacity: 1; background: #f6f8fb; }
+#panel.ro .pn-body button:disabled, .ck-body.ro button:disabled { opacity: .9; cursor: default; }
+#panel.ro .pn-body button:disabled:not(.on) { opacity: .55; }
+.lock-card.on { border-color: #e7c98a; background: #fffaf0; }
+.mi-note { padding: 8px 14px; font-size: 13px; color: #7a5300; background: #fff6e2; }
 
 </style>
 </head><body>
@@ -712,7 +725,7 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
 
 </script>
 <script>
-const APP_VERSION = '2026.10.16-0928';
+const APP_VERSION = '2026.10.16-1416';
 'use strict';
 /* ================= 기본 유틸 ================= */
 const $ = (s, r = document) => r.querySelector(s);
@@ -1148,7 +1161,23 @@ function projSig(p) { return p ? JSON.stringify(p) : ''; }   // 마지막 저장
 /** 숨겨지거나 닫힐 때: 저장 안 된 변경(지문이 달라진 경우 포함)이 있으면 저장 */
 function flushOnLeave() { try { if (S.proj && !SAVE.dirty && !SAVE.conflict && !IDB.mem && SAVE.sig && projSig(S.proj) !== SAVE.sig) SAVE.dirty = true; } catch (e) { /* */ } return saveSoon.flush(); }
 const saveSoon = debounce(saveProjectNow, 700, 2500);
-function touch() { if (!S.proj) return; S.proj.updated = Date.now(); SAVE.dirty = true; if (!SAVE.failed && !SAVE.conflict) setSaveState('wait'); saveSoon(); }
+/* ================= 프로젝트 잠금 (읽기 전용) =================
+ * 1 프로젝트에서 잠그면: 도면은 보기·확대·이동·위치 눌러 상세 보기만. 위치 찍기·옮기기·지우기·값 입력은 막힘.
+ * 자료연동(사진·철근탐사 파일)·내보내기 설정은 그대로 고칠 수 있음.
+ * 안전장치: 잠긴 동안 조사 기록이 바뀐 채 touch()가 오면 저장하지 않고 저장본으로 되돌림 */
+const isLocked = () => !!(S.proj && S.proj.locked);
+function lockGuard() { if (!isLocked()) return false; toast('잠긴 프로젝트입니다 (읽기 전용) · 잠금은 1 프로젝트에서 풉니다', { ms: 2600 }); return true; }
+const LOCK_SKIP = new Set(['thumb', 'updated', 'rev', 'settings', 'files', 'locked', 'lockedAt']);
+/** 잠금 대상 내용 지문: 조사 기록만 (설정·연동 파일·미리보기 그림 제외) */
+function lockSig(p) { return p ? JSON.stringify(p, (k, v) => (LOCK_SKIP.has(k) ? undefined : v)) : ''; }
+async function revertLocked() {
+  if (SAVE.reverting) return; SAVE.reverting = true;
+  toast('잠긴 프로젝트라 바꾸지 않았습니다 · 잠금은 1 프로젝트에서 풉니다', { ms: 3200 });
+  try { saveSoon.cancel(); SAVE.dirty = false; await reloadProjectFromDB(true); } finally { SAVE.reverting = false; }
+}
+function touch() { if (!S.proj) return;
+  if (S.proj.locked && SAVE.lockSig && lockSig(S.proj) !== SAVE.lockSig) { revertLocked(); return; }
+  S.proj.updated = Date.now(); SAVE.dirty = true; if (!SAVE.failed && !SAVE.conflict) setSaveState('wait'); saveSoon(); }
 /** 저장 상태 표시: 왼쪽 메뉴 글자 + (문제 있을 때) 화면 위 빨간 띠 – 현장조사 화면에서도 보임 */
 function setSaveState(k, txt) {
   if (IDB.mem && k !== 'fail' && k !== 'conflict') k = 'mem';   // 임시 모드는 저장돼도 계속 경고
@@ -1199,11 +1228,11 @@ async function resolveConflict() {
   if (c === 'mine') { const cur = await IDB.get('projects', S.proj.id); SAVE.base = (cur && cur.rev) || SAVE.base; SAVE.conflict = false; SAVE.dirty = true; await saveProjectNow(); }
   else if (c === 'theirs') { SAVE.conflict = false; SAVE.dirty = false; await reloadProjectFromDB(); }
 }
-async function reloadProjectFromDB() {
+async function reloadProjectFromDB(quiet) {
   if (!S.proj) return;
   const fresh = await IDB.get('projects', S.proj.id); if (!fresh) return;
   const view = S.view; S.proj = null; await loadProjectList();
-  const p = S.list.find(q => q.id === fresh.id); if (p) { await setProject(p); showView(view); toast('다른 창에서 저장한 최신 기록을 불러왔습니다', { ms: 3500 }); }
+  const p = S.list.find(q => q.id === fresh.id); if (p) { await setProject(p); showView(view); if (!quiet) toast('다른 창에서 저장한 최신 기록을 불러왔습니다', { ms: 3500 }); }
 }
 /** 창이 다시 보일 때: 다른 창이 더 최근에 저장했으면 (이 창에 저장 안 한 변경이 없을 때) 조용히 최신 기록으로 */
 async function checkNewerElsewhere() {
@@ -2403,6 +2432,7 @@ function initViewer() {
   buildToolbar();
   document.addEventListener('keydown', e => {
     if (!isStageView() || (e.target.closest && e.target.closest('input,textarea,select,.dlg')) || document.querySelector('.cp-big')) return;
+    if (isLocked() && ((e.ctrlKey || e.metaKey) || e.key === 'Delete' || e.key === 'Backspace')) return;   // 잠김: 되돌리기·지우기 키 무시
     if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z') { e.preventDefault(); e.shiftKey ? redo() : undo(); }
     else if (e.key === 'Delete' && V.sel) deleteSelection();
     else if (e.key === 'Escape') { if (PK.open) closePeek(); else if (V.calib || V.tool === 'region') endSpecialTool(); else closePanel(); }
@@ -2567,6 +2597,7 @@ function onDown(e) {
 function startDraw(e, pt) {
   V.drawPid = e.pointerId; V.drawType = e.pointerType; V.lastDrawEv = performance.now(); V.lastDrawPt = pt;
   V.toolSave = null;
+  if (isLocked()) { V.down = { pt, moved: false }; V.drag = { kind: 'pan', last: pt, ro: true }; return; }   // 잠김: 펜·마우스도 도면 이동, 톡 = 상세 보기
   if (e.pointerType === 'pen' && (e.button === 2 || e.button === 5 || (e.buttons & 2) || (e.buttons & 32))) { V.toolSave = V.tool; V.tool = 'erase'; }
   toolDown(pt); requestRender(false);
 }
@@ -2789,7 +2820,7 @@ function toolUp(pt) {
     if (d.kind === 'whole') { if (d.wholeMoved) touchSheet(); else requestRender(false); }
     else if (d.kind === 'marker') { if (!moved) { V.sel = { type: 'm', id: d.m.id }; openPanel(d.m); } else touchSheet(); }
     else if (d.kind === 'tip' || d.kind === 'aim' || d.kind === 'move' || d.kind === 'wend') { if (moved) touchSheet(); else if (d.kind === 'move' && d.o.s != null) editText(d.o); else if (d.kind === 'move' && isWall(d.o)) openPanel(d.o); else if (d.kind === 'wend') openPanel(d.w); }
-    else if (d.kind === 'pan') endGesture();
+    else if (d.kind === 'pan') { endGesture(); if (d.ro && !moved) tapAt(pt); }
     else if (d.kind === 'erase') { if (d.pushed) touchSheet(); }
     else if (d.kind === 'calib') calibPoint(pt);
     else if (d.kind === 'rect') finishRegion(d.a, d.b);
@@ -2952,7 +2983,7 @@ function removeMarker(m, withToast) {
   if (withToast) toast(`${m.no}번 위치를 지웠습니다`, { action: undoToastAction(), label: '되돌리기' });
 }
 function deleteSelection() {
-  const s = V.sel; if (!s) return; pushUndo();
+  const s = V.sel; if (!s || lockGuard()) return; pushUndo();
   if (s.type === 'm') { const m = selMarker(); if (m) removeMarker(m, true); }
   else if (s.type === 'w') { const w = selWall(); if (w) removeWall(w); }
   else if (s.type === 's') V.sheet.strokes = V.sheet.strokes.filter(x => x.id !== s.id);
@@ -3011,6 +3042,7 @@ function pushUndo() { if (!V.sheet) return; UNDO.push(snap(V.sheet)); if (UNDO.l
 async function undo() { await undoRedo(UNDO, REDO, '되돌리기'); }
 async function redo() { await undoRedo(REDO, UNDO, '다시 하기'); }
 async function undoRedo(from, to, lb) {
+  if (lockGuard()) return;
   const u = from[from.length - 1]; if (!u || !S.proj) return;
   const sh = S.proj.sheets.find(x => x.id === u.sid);
   if (!sh || sh !== V.sheet || (u.mode && u.mode !== V.mode)) { clearUndo(); return; }   // 다른 도면·화면 것은 버림
@@ -3023,7 +3055,7 @@ function afterRestore(sh) {
   if (V.panelM) { const m = findItem(sh, V.panelM.id); if (m) openPanel(m); else closePanel(); }
   touchSheet(); updateUndoBtns();
 }
-function updateUndoBtns() { const u = $('#btnUndo'), r = $('#btnRedo'); if (u) u.disabled = !UNDO.length; if (r) r.disabled = !REDO.length; }
+function updateUndoBtns() { const u = $('#btnUndo'), r = $('#btnRedo'), L = typeof isLocked === 'function' && isLocked(); if (u) u.disabled = L || !UNDO.length; if (r) r.disabled = L || !REDO.length; }
 
 /* ================= 툴바 ================= */
 const ICON = {
@@ -3048,6 +3080,7 @@ function buildToolbar() {
   $('#btnRedo').innerHTML = svg('redo') + '<span>다시</span>'; $('#btnRedo').onclick = redo;
   $('#btnFit').innerHTML = svg('fit') + '<span>화면맞춤</span>'; $('#btnFit').onclick = () => fitView();
   $('#btnMore').innerHTML = svg('more') + '<span>더보기</span>'; $('#btnMore').onclick = openMoreMenu;
+  if (!$('#lockBadge')) $('#toolBtns').after(h('button', { id: 'lockBadge', class: 'lock-badge', type: 'button', onclick: () => toast('잠긴 프로젝트입니다 · 보기만 됩니다. 잠금은 1 프로젝트에서 풉니다', { ms: 3000 }) }, h('span', { html: '<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V8a4 4 0 018 0v3"/></svg>' }), h('span', null, '읽기 전용')));
   const pc = $('#penColors'); pc.innerHTML = '';
   for (const col of PEN_COLORS) pc.append(h('button', { class: 'sw', type: 'button', style: { background: col }, 'data-c': col, 'aria-label': '펜 색', onclick: () => { V.opts.penColor = col; saveOpts(); syncTools(); } }));
   $('#sheetSel').onchange = e => openSheet(e.target.value);
@@ -3056,7 +3089,7 @@ function buildToolbar() {
   $('#counter').onclick = editCounters;
   syncTools(); updateUndoBtns();
 }
-function setTool(k) { if (V.calib && k !== 'calib') { V.calib = null; hideBanner(); } if (V.tool === 'region' && k !== 'region') hideBanner(); if (k !== 'shape' && k !== 'select' && V.sel && V.sel.type === 'g') V.sel = null; V.tool = k; syncTools(); requestRender(false); }
+function setTool(k) { if (k !== 'arrow' && isLocked()) { lockGuard(); return; } if (V.calib && k !== 'calib') { V.calib = null; hideBanner(); } if (V.tool === 'region' && k !== 'region') hideBanner(); if (k !== 'shape' && k !== 'select' && V.sel && V.sel.type === 'g') V.sel = null; V.tool = k; syncTools(); requestRender(false); }
 function syncTools() {
   $$('#toolBtns .tool').forEach(b => b.classList.toggle('on', b.dataset.tool === V.tool));
   $('#penColors').hidden = !(V.tool === 'pen' || V.tool === 'text');
@@ -3089,6 +3122,7 @@ function updateCounter() {
   $('#counter').innerHTML = `<span>다음 번호</span><b>${esc(p.scan)}${nextNum('scan')} · ${esc(p.hammer)}${nextNum('hammer')} · ${esc(p.photo)}${nextNum('photo')}</b>`;
 }
 async function editCounters() {
+  if (lockGuard()) return;
   const st = S.proj.settings;
   const mk = (k, lb) => h('label', { class: 'f' }, `${lb} 다음 번호`, npField(h('input', { class: 'in num', id: 'cnt-' + k, value: nextNum(k) }), { key: 'cnt:' + k, label: `${lb} 다음 번호` }));
   const npSlot = h('div', { class: 'dlg-np' }); npReset();
@@ -3109,10 +3143,11 @@ function openMoreMenu(ev) {
   const it = (label, val, fn) => h('button', { class: 'mi', type: 'button', onclick: () => { closeMenus(); fn(); } }, h('span', null, label), val != null ? h('em', null, val) : null);
   const isRaster = V.sheet && V.sheet.src.kind !== 'dxf';
   const menu = h('div', { class: 'menu', role: 'menu' },
-    it('축척 보정 (기준점 2개)', isRaster ? (V.sheet.calib ? '보정됨' : '미보정') : 'DXF', startCalib),
-    isRaster && V.sheet.src.kind === 'pdf' ? it('축척 직접 입력 (CAD 출력 PDF)', null, scaleCalib) : null,
-    it('영역 나누기 (층별 도면 만들기)', null, startRegion),
-    it('이 도면 다른 층으로 복사', null, () => copySheetFlow(V.sheet)),
+    isLocked() ? h('div', { class: 'mi-note' }, '🔒 잠긴 프로젝트 · 보기 설정만 바꿀 수 있습니다') : null,
+    isLocked() ? null : it('축척 보정 (기준점 2개)', isRaster ? (V.sheet.calib ? '보정됨' : '미보정') : 'DXF', startCalib),
+    !isLocked() && isRaster && V.sheet.src.kind === 'pdf' ? it('축척 직접 입력 (CAD 출력 PDF)', null, scaleCalib) : null,
+    isLocked() ? null : it('영역 나누기 (층별 도면 만들기)', null, startRegion),
+    isLocked() ? null : it('이 도면 다른 층으로 복사', null, () => copySheetFlow(V.sheet)),
     h('hr'),
     it('도면 흐리게', o.fade ? '켜짐' : '꺼짐', () => { o.fade = !o.fade; saveOpts(); requestRender(); scheduleHi(); }),
     it('도면 색', { dark: '진하게', mono: '흑백', orig: '원래 색' }[o.colorMode], () => { o.colorMode = { dark: 'mono', mono: 'orig', orig: 'dark' }[o.colorMode]; saveOpts(); requestRender(); }),
@@ -3137,6 +3172,7 @@ function endSpecialTool() { V.calib = null; hideBanner(); setTool('arrow'); }
 
 /* 축척 보정 */
 function startCalib() {
+  if (lockGuard()) return;
   if (!V.sheet) return;
   if (V.sheet.src.kind === 'dxf') { toast('DXF 도면은 CAD 좌표를 그대로 쓰므로 보정이 필요 없습니다'); return; }
   V.tool = 'calib'; syncTools(); V.calib = { pts: [] };
@@ -3175,6 +3211,7 @@ async function calibDialog() {
   endSpecialTool();
 }
 async function scaleCalib() {
+  if (lockGuard()) return;
   const v = await promptDlg('도면 축척', 'CAD에서 1:1 축척으로 출력한 PDF만 해당합니다. 1/ 뒤의 숫자 (예: 100)', '100', { type: 'number', inputmode: 'numeric' });
   const n = numv(v); if (!n || n <= 0) return;
   V.sheet.calib = { type: 'scale', scale: n }; touch(); toast(`축척 1/${n}로 보정했습니다`);
@@ -3196,6 +3233,7 @@ function isCalibrated(sheet) { return sheet.src.kind === 'dxf' || !!sheet.calib;
 
 /* 영역 나누기 */
 function startRegion() {
+  if (lockGuard()) return;
   if (!V.sheet) return; V.calib = null; V.tool = 'region'; syncTools();
   banner('층별로 나눌 영역을 펜(또는 마우스)으로 대각선으로 끌어 그리세요', [['끝내기', endSpecialTool, 'pri']]);
 }
@@ -3923,10 +3961,18 @@ function ensureVisible(m) {
 }
 function panelChanged(rerender) { touch(); updateCounter(); updateDisp(); requestRender(false); if (rerender) renderPanel(); }
 
+/** 잠긴 프로젝트: 상세창을 읽기 전용으로 (입력칸·버튼 막고, 그리기 판·숫자패드·지우기 숨김. 위 ◀ ▶ 닫기·다음 위치는 그대로) */
+function applyPanelRO(P) {
+  P.classList.toggle('ro', isLocked()); if (!isLocked()) return;
+  for (const el of P.querySelectorAll('input, textarea, select')) el.disabled = true;
+  for (const b of P.querySelectorAll('button')) if (!b.closest('.pn-head') && b.dataset.ro !== 'keep') b.disabled = true;
+  const head = P.querySelector('.pn-head'); if (head && !P.querySelector('.ro-note')) head.after(h('div', { class: 'ro-note' }, '🔒 잠긴 프로젝트 · 읽기 전용'));
+  if (typeof NPAD !== 'undefined' && NPAD.target) { NPAD.target.classList.remove('np-on'); NPAD.target = null; NPAD.key = null; }
+}
 function renderPanel() {
   const m = V.panelM, P = $('#panel'); if (!m) return;
-  if (isApItem(m) || isWall(m)) { renderApPanel(); return; }
-  scanAdopt(m);
+  if (isApItem(m) || isWall(m)) { renderApPanel(); applyPanelRO(P); return; }
+  if (!isLocked()) scanAdopt(m);
   const wide = panelWide();
   const keepScroll = (P.classList.contains('wide') === wide) ? $$('.pn-body', P).map(e => e.scrollTop) : [];
   P.innerHTML = ''; P.classList.toggle('wide', wide);
@@ -4047,8 +4093,9 @@ function renderPanel() {
   P.append(h('div', { class: 'pn-foot' },
     h('button', { class: 'btn danger', type: 'button', onclick: () => { pushUndo(); removeMarker(m, true); } }, '이 위치 지우기'),
     h('span', { class: 'spacer' }),
-    h('button', { class: 'btn pri', type: 'button', onclick: () => go(1) }, '다음 위치')));
+    h('button', { class: 'btn pri', type: 'button', 'data-ro': 'keep', onclick: () => go(1) }, '다음 위치')));
   npMount(npSlot);
+  applyPanelRO(P);
   $$('.pn-body', P).forEach((e, i) => { e.scrollTop = keepScroll[i] || 0; });
   peekSync();
 }
@@ -4240,7 +4287,7 @@ async function openImage(key, opt = {}) {
   if (!url) { toast('미리보기를 만들 수 없는 파일입니다'); return; }
   const v = h('div', { class: 'viewer' },
     h('div', { class: 'vbar' }, h('span', { style: { color: '#fff', marginRight: 'auto', alignSelf: 'center' } }, opt.title || ''),
-      opt.onDelete ? h('button', { class: 'btn danger', type: 'button', onclick: () => { v.remove(); opt.onDelete(); } }, '지우기') : null,
+      opt.onDelete && !isLocked() ? h('button', { class: 'btn danger', type: 'button', onclick: () => { v.remove(); opt.onDelete(); } }, '지우기') : null,
       h('button', { class: 'btn', type: 'button', onclick: () => v.remove() }, '닫기')),
     h('img', { src: url, alt: opt.title || '' }));
   document.body.append(v);
@@ -4473,7 +4520,7 @@ function renderApPanel() {
   P.append(h('div', { class: 'pn-foot' },
     h('button', { class: 'btn danger', type: 'button', onclick: () => { pushUndo(); removeApItem(a, true); } }, '지우기'),
     h('span', { class: 'spacer' }),
-    h('button', { class: 'btn pri', type: 'button', onclick: () => go(1) }, '다음')));
+    h('button', { class: 'btn pri', type: 'button', 'data-ro': 'keep', onclick: () => go(1) }, '다음')));
   npMount(npSlot);
   $$('.pn-body', P).forEach((e, i) => { e.scrollTop = keep[i] || 0; });
 }
@@ -4510,7 +4557,7 @@ function renderWallPanel(P, w, keep) {
   P.append(h('div', { class: 'pn-foot' },
     h('button', { class: 'btn danger', type: 'button', onclick: () => { pushUndo(); removeWall(w); } }, '지우기'),
     h('span', { class: 'spacer' }),
-    h('button', { class: 'btn pri', type: 'button', onclick: () => go(1) }, '다음')));
+    h('button', { class: 'btn pri', type: 'button', 'data-ro': 'keep', onclick: () => go(1) }, '다음')));
   npMount(npSlot);
   $$('.pn-body', P).forEach((e, i) => { e.scrollTop = keep[i] || 0; });
 }
@@ -4533,11 +4580,12 @@ async function openChecklist(tab) {
     for (const [k, lb] of CK_TABS) tabs.append(h('button', { type: 'button', role: 'tab', class: CK_TAB === k ? 'on' : '', 'aria-selected': String(CK_TAB === k), onclick: () => { CK_TAB = k; render(); content.scrollTop = 0; } }, lb));
     content.innerHTML = '';
     ({ masonry: ckMasonry, finish: ckFinish, nonst: ckNonst, etc: ckEtc, qty: ckQty, draft: ckDraft })[CK_TAB](content, render);
+    if (isLocked()) { for (const el of content.querySelectorAll('input, textarea, select, button')) el.disabled = true; content.classList.add('ro'); }   // 잠김: 보기만
     // 숫자 칸이 있는 탭만 오른쪽 아래 숫자패드
-    npSlot.hidden = !$$('.np-f', content).length; if (!npSlot.hidden) npMount(npSlot); else npRebind();
+    npSlot.hidden = isLocked() || !$$('.np-f', content).length; if (!npSlot.hidden) npMount(npSlot); else npRebind();
   };
   npReset(); render();
-  await dialog({ title: '건물 체크리스트 (외관조사)', wide: true, noFocus: true, body: [tabs, content], foot: npSlot, buttons: [{ label: '닫기', value: true, cls: 'pri' }] });
+  await dialog({ title: '건물 체크리스트 (외관조사)' + (isLocked() ? ' · 🔒 읽기 전용' : ''), wide: true, noFocus: true, body: [tabs, content], foot: npSlot, buttons: [{ label: '닫기', value: true, cls: 'pri' }] });
   npReset(); updateCounter(); if (V.panelM) renderPanel();
 }
 const ckCard = (title, ...kids) => h('div', { class: 'ck-card' }, title ? h('h3', null, title) : null, ...kids);
@@ -4881,9 +4929,32 @@ async function setProject(p) {
   S.proj = normProject(p); lsSet('lastProject', p.id);
   const i = S.list.findIndex(q => q.id === S.proj.id); if (i >= 0) S.list[i] = S.proj;
   SAVE.base = S.proj.rev || 0; SAVE.dirty = false; SAVE.failed = false; SAVE.conflict = false; setSaveState('loaded', S.proj.updated); try { SAVE.sig = projSig(S.proj); } catch (e) { SAVE.sig = ''; }
+  SAVE.lockSig = S.proj.locked ? lockSig(S.proj) : '';
   V.sheet = null; V.src = null; V.views.clear(); V.disp = 'field'; UNDO.length = 0; REDO.length = 0; closePanel(); updateUndoBtns();
   $('#navProj').textContent = S.proj.name;
+  applyLockUI();
   return true;
+}
+/** 잠그기 / 잠금 풀기 (1 프로젝트) */
+async function setProjectLock(on) {
+  const p = S.proj; if (!p || !!p.locked === on) return;
+  if (!on && !await confirmDlg('잠금 풀기', `'${p.name}'의 잠금을 풉니다. 다시 위치를 찍고 값을 고칠 수 있게 됩니다.`, '잠금 풀기')) return;
+  if (on) await saveProjectNow();   // 고치던 것 먼저 저장
+  closePanel();
+  p.locked = on; p.lockedAt = on ? Date.now() : null;
+  SAVE.lockSig = on ? lockSig(p) : '';
+  p.updated = Date.now(); SAVE.dirty = true; await saveProjectNow();
+  applyLockUI(); renderProjects();
+  toast(on ? '프로젝트를 잠갔습니다 · 읽기 전용 (자료연동·내보내기는 그대로)' : '잠금을 풀었습니다 · 다시 고칠 수 있습니다', { ms: 3200 });
+}
+/** 잠금 상태를 화면에 반영 (메뉴의 프로젝트 이름, 도면 화면 도구줄) */
+function applyLockUI() {
+  const L = isLocked();
+  document.body.classList.toggle('locked', L);
+  if (S.proj) $('#navProj').textContent = (L ? '🔒 ' : '') + S.proj.name;
+  if (L) { if (typeof V !== 'undefined') { V.sel = null; V.stroke = null; V.drag = null; if (V.tool !== 'arrow') { V.tool = 'arrow'; if (typeof syncTools === 'function') syncTools(); } } if (typeof clearUndo === 'function') clearUndo(); }
+  if (typeof updateUndoBtns === 'function') updateUndoBtns();
+  if (typeof requestRender === 'function' && V.sheet) requestRender(false);
 }
 
 /* ================= 1. 프로젝트 ================= */
@@ -4895,13 +4966,19 @@ function renderProjects() {
   for (const p of S.list) {
     const n = p.sheets.reduce((a, s) => a + s.markers.length, 0);
     tb.append(h('tr', { class: 'click' + (S.proj && S.proj.id === p.id ? ' sel' : ''), onclick: async () => { await setProject(p); renderProjects(); } },
-      h('td', null, p.name), h('td', null, p.site || '–'), h('td', { class: 'num' }, p.date || ''), h('td', { class: 'r' }, p.sheets.length), h('td', { class: 'r' }, n), h('td', { class: 'num' }, fmtTime(p.updated))));
+      h('td', null, p.locked ? '🔒 ' : '', p.name), h('td', null, p.site || '–'), h('td', { class: 'num' }, p.date || ''), h('td', { class: 'r' }, p.sheets.length), h('td', { class: 'r' }, n), h('td', { class: 'num' }, fmtTime(p.updated))));
   }
   const F = $('#projForm'); F.innerHTML = '';
   if (!S.proj) { F.append(h('div', { class: 'card' }, h('h2', null, '프로젝트를 고르세요'), h('p', { class: 'hint' }, '왼쪽 목록에서 고르거나 새 프로젝트를 만드세요.'))); return; }
-  const p = S.proj, st = p.settings;
-  const bind = (obj, k, lb, attrs = {}) => { const i = h('input', Object.assign({ class: 'in', value: obj[k] ?? '' }, attrs)); i.addEventListener('input', () => { obj[k] = attrs.type === 'number' ? (numv(i.value) ?? obj[k]) : i.value; if (k === 'name') $('#navProj').textContent = p.name; touch(); }); i.addEventListener('change', () => renderProjects()); return h('label', { class: 'f' }, lb, i); };
-  const seg = (obj, k, opts) => h('div', { class: 'chips' }, opts.map(([v, lb]) => h('button', { type: 'button', class: 'chip sm' + (obj[k] === v ? ' on' : ''), onclick: () => { obj[k] = v; touch(); renderProjects(); } }, lb)));
+  const p = S.proj, st = p.settings, L = isLocked();
+  F.append(h('div', { class: 'card lock-card' + (L ? ' on' : '') },
+    h('h2', null, L ? '🔒 잠긴 프로젝트 (읽기 전용)' : '프로젝트 잠금'),
+    h('p', { class: 'hint' }, L ? '도면 보기·확대·이동과 위치를 눌러 상세 보기만 됩니다. 위치 찍기·옮기기·지우기, 값 입력은 막혀 있습니다. 자료연동(사진·철근탐사 파일)과 내보내기는 그대로 쓸 수 있습니다.'
+      : '현장조사를 마치고 사무실에서 정리하거나 보고서를 쓸 때 잠가 두면, 잘못 눌러 위치가 찍히거나 값이 바뀌지 않습니다. 자료연동과 내보내기는 잠가도 쓸 수 있습니다.'),
+    h('div', { class: 'row' }, h('button', { class: 'btn ' + (L ? '' : 'pri'), type: 'button', onclick: () => setProjectLock(!L) }, L ? '잠금 풀기' : '🔒 프로젝트 잠그기'),
+      L && p.lockedAt ? h('small', { class: 'hint', style: { margin: 0 } }, `잠근 때 ${fmtTime(p.lockedAt)}`) : null)));
+  const bind = (obj, k, lb, attrs = {}) => { const i = h('input', Object.assign({ class: 'in', value: obj[k] ?? '', disabled: L }, attrs)); i.addEventListener('input', () => { obj[k] = attrs.type === 'number' ? (numv(i.value) ?? obj[k]) : i.value; if (k === 'name') $('#navProj').textContent = p.name; touch(); }); i.addEventListener('change', () => renderProjects()); return h('label', { class: 'f' }, lb, i); };
+  const seg = (obj, k, opts) => h('div', { class: 'chips' }, opts.map(([v, lb]) => h('button', { type: 'button', disabled: L, class: 'chip sm' + (obj[k] === v ? ' on' : ''), onclick: () => { obj[k] = v; touch(); renderProjects(); } }, lb)));
   F.append(h('div', { class: 'card' }, h('h2', null, '현재 프로젝트'),
     h('div', { class: 'grid2' }, bind(p, 'name', '프로젝트명'), bind(p, 'site', '건물명·현장'), bind(p, 'date', '조사일', { type: 'date' }), bind(p, 'surveyor', '조사자'))));
   F.append(h('div', { class: 'card' }, h('h2', null, '번호 규칙'),
@@ -4909,12 +4986,12 @@ function renderProjects() {
     h('div', { class: 'f' }, h('span', null, '현장번호 매기기'), seg(st, 'numbering', [['sheet', '도면(층)마다 1번부터'], ['all', '전체 이어서']])),
     h('div', { class: 'f' }, h('span', null, '항목별 조사위치도 번호'), seg(st, 'itemNumbering', [['all', '전체 층 이어서'], ['sheet', '도면(층)마다 1번부터']])),
     h('div', { class: 'f' }, h('span', null, '펜으로 그은 선에서 번호 위치'), seg(st, 'arrowFrom', [['end', '시작점 = 화살표 끝 (번호는 끝점)'], ['start', '시작점 = 번호']])),
-    h('label', { class: 'check' }, h('input', { type: 'checkbox', checked: st.autoOpen, onchange: e => { st.autoOpen = e.target.checked; touch(); } }), h('span', null, '위치를 찍으면 상세 입력창 바로 열기'))));
+    h('label', { class: 'check' }, h('input', { type: 'checkbox', checked: st.autoOpen, disabled: L, onchange: e => { st.autoOpen = e.target.checked; touch(); } }), h('span', null, '위치를 찍으면 상세 입력창 바로 열기'))));
   F.append(h('div', { class: 'card' }, h('h2', null, '다른 기기로 옮기기'),
     h('p', { class: 'hint' }, '태블릿의 기록은 이 기기 브라우저 안에만 저장됩니다. 사무실 PC로 옮기거나 백업하려면 프로젝트 파일(.zip)로 저장해서 PC에서 불러오세요.'),
     h('div', { class: 'row' }, h('button', { class: 'btn pri', type: 'button', onclick: () => saveProjectZip(false) }, '프로젝트 파일 저장'),
       h('button', { class: 'btn', type: 'button', onclick: () => saveProjectZip(true) }, '연동 파일까지 포함해 저장'),
-      h('span', { class: 'spacer' }), h('button', { class: 'btn danger', type: 'button', onclick: deleteProject }, '프로젝트 지우기'))));
+      h('span', { class: 'spacer' }), h('button', { class: 'btn danger', type: 'button', disabled: L, title: L ? '잠긴 프로젝트는 지울 수 없습니다' : '', onclick: deleteProject }, '프로젝트 지우기'))));
 }
 async function newProjectFlow() {
   const name = await promptDlg('새 프로젝트', '프로젝트명 (예: ○○초등학교 본관 내진성능평가)', '');
@@ -4926,6 +5003,7 @@ async function newProjectFlow() {
 }
 async function deleteProject() {
   const p = S.proj; if (!p) return;
+  if (lockGuard()) return;
   if (!await confirmDlg('프로젝트 지우기', `'${p.name}'과 도면·사진을 이 기기에서 지웁니다. 되돌릴 수 없습니다. 필요하면 먼저 프로젝트 파일로 저장하세요.`, '지우기', true)) return;
   const others = new Set(); for (const q of S.list) if (q.id !== p.id) for (const k of projectBlobKeys(q)) others.add(k);
   // 프로젝트 기록을 먼저 지우고 사진·도면을 지움 (중간에 꺼져도 '사진 없는 프로젝트'가 남지 않게)
@@ -4973,7 +5051,7 @@ async function importProjectZip() {
         h('tr', null, h('td', null, '이 기기'), h('td', { class: 'num' }, `마지막 수정 ${fmtTime(exists.updated)}`), h('td', { class: 'r' }, `위치 ${cnt(exists)}곳`)),
         h('tr', null, h('td', null, '불러온 파일'), h('td', { class: 'num' }, `마지막 수정 ${fmtTime(p.updated)}`), h('td', { class: 'r' }, `위치 ${cnt(p)}곳`)))),
       h('p', { style: { margin: '8px 0 0' } }, '잘 모르겠으면 ‘사본으로 추가’를 고르세요. 덮어쓰면 이 기기의 기록이 불러온 파일 내용으로 바뀝니다.')),
-      buttons: [{ label: '취소', value: null }, { label: '덮어쓰기', value: 'over', cls: 'danger' }, { label: '사본으로 추가', value: 'copy', cls: 'pri' }], noBackdrop: true });
+      buttons: [{ label: '취소', value: null }, exists.locked ? null : { label: '덮어쓰기', value: 'over', cls: 'danger' }, { label: '사본으로 추가', value: 'copy', cls: 'pri' }].filter(Boolean), noBackdrop: true });
     if (!c) return;
     if (c === 'copy') { p.id = uid(); p.name += ' (사본)'; } else over = true;
   }
@@ -5002,27 +5080,28 @@ async function importProjectZip() {
 
 /* ================= 2. 도면 ================= */
 function renderSheets() {
-  const t = $('#tblSheets'); t.innerHTML = ''; const ss = S.proj.sheets;
+  const t = $('#tblSheets'); t.innerHTML = ''; const ss = S.proj.sheets, L = isLocked();
+  for (const id of ['#btnAddSheet', '#btnShotSheet']) { const b = $(id); if (b) b.disabled = L; }
   $('#sheetCount').textContent = ss.length ? `${ss.length}장` : '';
   t.append(h('thead', null, h('tr', null, h('th', null, '미리보기'), h('th', null, '도면 이름'), h('th', null, '형식'), h('th', null, '좌표'), h('th', null, '참고용'), h('th', { class: 'r' }, '위치'), h('th', null, ''))));
   const tb = h('tbody'); t.append(tb);
   if (!ss.length) tb.append(h('tr', null, h('td', { colspan: 7, class: 'empty' }, '도면이 없습니다. 오른쪽 위 ‘도면 파일 추가’로 층별 구조평면도를 불러오세요.')));
   ss.forEach((s, i) => {
     const img = h('img', { class: 'thumb', alt: '' }); if (s.thumb) blobURL(s.thumb).then(u => { if (u) img.src = u; });
-    const name = h('input', { class: 'in', value: s.name, 'aria-label': '도면 이름' });
+    const name = h('input', { class: 'in', value: s.name, 'aria-label': '도면 이름', disabled: L });
     name.addEventListener('input', () => { s.name = name.value; touch(); updatePeekBtn(); });
     // 참고용: 야장은 잘 안 쓰고 조사 중 수시로 보는 도면 (일람표 등) → 현장조사 화면 ‘참고 도면’ 버튼으로 바로 보기
-    const refCb = h('input', { type: 'checkbox', checked: isRefSheet(s), 'aria-label': `${s.name} 참고용` });
+    const refCb = h('input', { type: 'checkbox', checked: isRefSheet(s), 'aria-label': `${s.name} 참고용`, disabled: L });
     refCb.addEventListener('change', () => { s.ref = refCb.checked; touch(); fillSheetSelect(); updatePeekBtn(); });
     const kind = { pdf: `PDF ${s.src.page}쪽`, image: '이미지', dxf: 'DXF' }[s.src.kind] + (s.clip ? (s.clipHard ? '·도곽' : '·영역') : '');
     const cal = s.src.kind === 'dxf' ? h('span', { class: 'pill ok' }, 'CAD 좌표') : s.calib ? h('span', { class: 'pill ok' }, s.calib.type === 'scale' ? `1/${s.calib.scale}` : '보정됨') : h('span', { class: 'pill warn' }, '미보정');
     tb.append(h('tr', null, h('td', null, img), h('td', { style: { minWidth: '150px' } }, name), h('td', { style: { whiteSpace: 'nowrap' } }, kind), h('td', null, cal), h('td', { style: { textAlign: 'center' } }, refCb), h('td', { class: 'r' }, s.markers.length, (s.ap || []).length + (s.walls || []).length ? h('small', { style: { display: 'block', color: 'var(--muted)', whiteSpace: 'nowrap' } }, `외관 ${(s.ap || []).length + (s.walls || []).length}`) : null),
       h('td', { style: { minWidth: '178px' } }, h('div', { class: 'row', style: { flexWrap: 'wrap', gap: '6px', maxWidth: '196px' } },
-        h('button', { class: 'btn small', type: 'button', disabled: i === 0, onclick: () => { ss.splice(i - 1, 0, ss.splice(i, 1)[0]); touch(); renderSheets(); }, 'aria-label': '위로' }, '▲'),
-        h('button', { class: 'btn small', type: 'button', disabled: i === ss.length - 1, onclick: () => { ss.splice(i + 1, 0, ss.splice(i, 1)[0]); touch(); renderSheets(); }, 'aria-label': '아래로' }, '▼'),
+        h('button', { class: 'btn small', type: 'button', disabled: L || i === 0, onclick: () => { ss.splice(i - 1, 0, ss.splice(i, 1)[0]); touch(); renderSheets(); }, 'aria-label': '위로' }, '▲'),
+        h('button', { class: 'btn small', type: 'button', disabled: L || i === ss.length - 1, onclick: () => { ss.splice(i + 1, 0, ss.splice(i, 1)[0]); touch(); renderSheets(); }, 'aria-label': '아래로' }, '▼'),
         h('button', { class: 'btn small pri', type: 'button', onclick: () => { showView('survey'); openSheet(s.id); } }, '열기'),
-        h('button', { class: 'btn small', type: 'button', onclick: () => copySheetFlow(s), title: '다른 층으로 복사' }, '복사'),
-        h('button', { class: 'btn small danger', type: 'button', onclick: () => deleteSheet(s) }, '지우기')))));
+        h('button', { class: 'btn small', type: 'button', disabled: L, onclick: () => copySheetFlow(s), title: '다른 층으로 복사' }, '복사'),
+        h('button', { class: 'btn small danger', type: 'button', disabled: L, onclick: () => deleteSheet(s) }, '지우기')))));
   });
 }
 /* ================= 도면 복사 (손그림 등을 여러 층으로) ================= */
@@ -5034,7 +5113,7 @@ function nextFloorName(name, k) {
   return name.slice(0, m.index) + (f < 0 ? `지하${-f}층` : `${f}층`) + name.slice(m.index + m[0].length);
 }
 async function copySheetFlow(s) {
-  if (!s) return;
+  if (!s || lockGuard()) return;
   let n = 1; const names = [];
   const list = h('div', { style: { display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(170px, 1fr))', gap: '8px' } });
   const cnt = h('b', { style: { minWidth: '36px', textAlign: 'center', fontSize: '18px' } }, '1');
@@ -5071,6 +5150,7 @@ async function copySheetFlow(s) {
   toast(`${made.length}개 층으로 복사했습니다: ${made.map(c => c.name).join(', ')}`, { ms: 4000 });
 }
 async function deleteSheet(s) {
+  if (lockGuard()) return;
   const na = (s.ap || []).length + (s.walls || []).length;
   if (!await confirmDlg('도면 지우기', s.markers.length || na ? `'${s.name}'에 조사위치 ${s.markers.length}개${na ? `, 외관조사 표시 ${na}개` : ''}가 있습니다. 도면과 기록을 함께 지울까요?` : `'${s.name}'을 지울까요?`, '지우기', true)) return;
   S.proj.sheets = S.proj.sheets.filter(x => x !== s); if (V.sheet === s) { V.sheet = null; V.src = null; closePanel(); }
@@ -5078,12 +5158,14 @@ async function deleteSheet(s) {
 }
 /** 도면 탭에서 바로 사진 찍어 도면으로 (손도면 등) */
 async function shotSheetFlow() {
+  if (lockGuard()) return;
   const files = await pickFiles({ accept: 'image/*', multiple: false, capture: 'environment' });
   if (!files.length) return;
   const k = S.proj.sheets.filter(s => /^손도면 \d+/.test(s.name)).length + 1, f = files[0];
   addSheetsFlow([new File([f], `손도면 ${k}.${extOf(f.name) || 'jpg'}`, { type: f.type || 'image/jpeg' })]);
 }
 async function addSheetsFlow(pre) {
+  if (lockGuard()) return;
   const files = Array.isArray(pre) ? pre : await pickFiles({ accept: '.pdf,.dxf,.png,.jpg,.jpeg,.webp,.bmp,image/*,application/pdf' });
   if (!files.length) return;
   let added = 0;
