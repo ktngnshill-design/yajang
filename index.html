@@ -712,7 +712,7 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
 
 </script>
 <script>
-const APP_VERSION = '2026.10.16-0912';
+const APP_VERSION = '2026.10.16-0923';
 'use strict';
 /* ================= 기본 유틸 ================= */
 const $ = (s, r = document) => r.querySelector(s);
@@ -2548,7 +2548,10 @@ function onDown(e) {
     if (V.drawPid != null && V.drawType !== 'touch' && performance.now() - (V.lastDrawEv || 0) > 2500) finishStaleDraw();   // 펜 끝 신호가 사라진 경우
     if (V.drawPid != null && V.drawType !== 'touch') { dlog('ign', 'pen-drawing'); return; }           // 펜으로 그리는 중 손바닥
     if (performance.now() - V.lastPen < 450) { dlog('ign', 'pen-near'); return; }                    // 펜이 떠 있는 동안 손바닥
-    V.pointers.set(e.pointerId, { x: pt.x, y: pt.y });
+    // 1.5초 넘게 꼼짝 않는 손가락 = 시스템(세 손가락 제스처 등)이 가져가 끝 신호가 안 온 '유령' → 빼고 시작 (태블릿 잡은 엄지가 닿아 있는 경우도 같이 해결)
+    const nowT = performance.now(); for (const [pid, q] of V.pointers) if (nowT - (q.t || 0) > 1500) { V.pointers.delete(pid); dlog('stale-ptr', pid); }
+    if (!V.pointers.size && V.gesture && !V.gesture.mouse) V.gesture = null;
+    V.pointers.set(e.pointerId, { x: pt.x, y: pt.y, t: nowT });
     try { V.fg.setPointerCapture(e.pointerId); } catch (er) { /* */ }
     if (V.opts.finger && V.pointers.size === 1 && V.drawPid == null && V.tool !== 'select') { startDraw(e, pt); return; }
     if (V.pointers.size >= 2) { if (V.drawPid != null && V.drawType === 'touch') cancelDraw(); startPinch(); }
@@ -2599,9 +2602,15 @@ function onMove(e) {
   }
   const pt = evPt(e);
   if (V.pointers.has(e.pointerId)) {
-    const p = V.pointers.get(e.pointerId); p.x = pt.x; p.y = pt.y;
+    const p = V.pointers.get(e.pointerId); p.x = pt.x; p.y = pt.y; p.t = performance.now();
     const g = V.gesture; if (!g) return;
-    if (g.kind === 'pinch') updatePinch();
+    if (g.kind === 'pinch') {
+      // 확대 중인데 한 손가락만 움직이고 다른 쪽은 1.5초째 꼼짝 않음 → 유령 손가락으로 보고 한 손가락 이동으로 바꿈
+      const stale = [...V.pointers.entries()].filter(([pid, q]) => pid !== e.pointerId && p.t - (q.t || 0) > 1500);
+      if (stale.length) { for (const [pid] of stale) V.pointers.delete(pid); dlog('stale-pinch', stale.map(x => x[0])); }
+      if (V.pointers.size === 1) { V.gesture = { kind: 'pan', last: pt, start: pt, moved: true, t0: 0 }; return; }
+      if (V.pointers.size >= 2) updatePinch();
+    }
     else if (g.kind === 'pan') {
       if (!g.moved && Math.hypot(pt.x - g.start.x, pt.y - g.start.y) > 9) g.moved = true;
       if (g.moved) { V.view.tx += pt.x - g.last.x; V.view.ty += pt.y - g.last.y; viewChanged(); }
