@@ -1,0 +1,37 @@
+{
+  "name": "Smart Field",
+  "short_name": "Smart Field",
+  "description": "Smart Field – 내진성능평가 현장조사 디지털 야장",
+  "id": "./",
+  "start_url": "./",
+  "scope": "./",
+  "lang": "ko",
+  "display": "fullscreen",
+  "display_override": [
+    "fullscreen",
+    "standalone"
+  ],
+  "orientation": "landscape",
+  "background_color": "#ffffff",
+  "theme_color": "#27497b",
+  "icons": [
+    {
+      "src": "icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "icon-maskable-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ]
+}
