@@ -502,6 +502,12 @@ body.locked #apBar .ap-seg:not(.thick):not(.snap) { pointer-events: none; opacit
 .al-stat { padding: 4px 8px; color: var(--muted); font-size: 12.5px; border-top: 1px solid var(--line); }
 .al-info { padding: 8px 16px 0; font-size: 14px; line-height: 1.5; }
 .al-info.warn { color: #b5470c; font-weight: 700; }
+/* 여러 장 묶어서 교체 – 짝 맞추기 */
+.rb-grid { display: grid; grid-template-columns: minmax(120px, 1fr) minmax(160px, 1.3fr) 220px; gap: 8px 12px; align-items: center; }
+.rb-grid > b { font-size: 13px; color: var(--muted); }
+.rb-old small { color: var(--muted); }
+.rb-cv { width: 220px; height: 140px; border: 1px solid var(--line); border-radius: 6px; background: #fff; }
+@media (max-width: 720px) { .rb-grid { grid-template-columns: 1fr 1fr; } .rb-grid > b:nth-child(3), .rb-cv { display: none; } }
 
 </style>
 </head><body>
@@ -549,6 +555,7 @@ body.locked #apBar .ap-seg:not(.thick):not(.snap) { pointer-events: none; opacit
         <h1>도면</h1><span class="sub">층별 구조평면도를 불러오고 이름을 붙입니다</span>
         <span class="grow"></span>
         <button class="btn" id="btnShotSheet" type="button" title="손으로 그린 도면 등을 바로 찍어서 도면으로"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" aria-hidden="true" style="vertical-align:-3px;margin-right:4px"><path d="M4 8h3l2-2.5h6L17 8h3v11H4z"/><circle cx="12" cy="13" r="3.6"/></svg>사진 찍어 추가</button>
+        <button class="btn" id="btnReplaceSheets" type="button" title="사진 도면 여러 장을 CAD 도면 등으로 한 번에 바꾸기 (장마다 기준점만 맞춤)">여러 장 교체</button>
         <button class="btn pri" id="btnAddSheet" type="button">도면 파일 추가</button>
       </div>
       <div class="view-body">
@@ -740,7 +747,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
 </script>
 
 <script>
-const APP_VERSION = '2026.10.27-1426';
+const APP_VERSION = '2026.10.27-1439';
 const APP_EDITION = 'field';
 'use strict';
 /* ================= 기본 유틸 ================= */
@@ -5354,7 +5361,7 @@ function initSheetDnD(t) {
 function renderSheets() {
   const t = $('#tblSheets'); t.innerHTML = ''; const ss = S.proj.sheets, L = isLocked();
   initSheetDnD(t);
-  for (const id of ['#btnAddSheet', '#btnShotSheet']) { const b = $(id); if (b) b.disabled = L; }
+  for (const id of ['#btnAddSheet', '#btnShotSheet', '#btnReplaceSheets']) { const b = $(id); if (b) b.disabled = L || (id === '#btnReplaceSheets' && !ss.length); }
   t.append(h('thead', null, h('tr', null, h('th', { class: 'drag-h', title: '끌어서 순서 바꾸기 · Shift/Ctrl+클릭으로 여러 장' }, ''), h('th', null, '미리보기'), h('th', null, '도면 이름'), h('th', null, '형식'), h('th', null, '좌표'), h('th', null, '참고용'), h('th', { class: 'r' }, '위치'), h('th', null, ''))));
   const tb = h('tbody'); t.append(tb);
   if (!ss.length) tb.append(h('tr', null, h('td', { colspan: 8, class: 'empty' }, '도면이 없습니다. 오른쪽 위 ‘도면 파일 추가’로 층별 구조평면도를 불러오세요.')));
@@ -5874,7 +5881,7 @@ function snapDXFPoint(src, wx, wy, tol) {
 }
 /** 도면 한 칸 (확대·이동·점 찍기) */
 function alignPane(title, sheet, src, opt) {
-  const pts = { A: null, B: null }; let active = 'A', view = { s: 1, tx: 0, ty: 0 }, W = 0, H = 0, dpr = 1;
+  const pts = { A: opt.init ? opt.init[0] : null, B: opt.init ? opt.init[1] : null }; let active = 'A', view = { s: 1, tx: 0, ty: 0 }, W = 0, H = 0, dpr = 1;
   const cv = h('canvas', { class: 'al-cv', 'aria-label': title });
   const chipA = h('button', { type: 'button', class: 'chip sm' }, 'A'), chipB = h('button', { type: 'button', class: 'chip sm' }, 'B');
   const stat = h('small', { class: 'al-stat' });
@@ -5899,7 +5906,7 @@ function alignPane(title, sheet, src, opt) {
       }
       chipA.classList.toggle('on', active === 'A'); chipB.classList.toggle('on', active === 'B');
       chipA.textContent = pts.A ? 'A ✓' : 'A'; chipB.textContent = pts.B ? 'B ✓' : 'B';
-      stat.textContent = !pts.A ? `${active}를 찍으세요` : !pts.B ? 'B를 찍으세요' : '두 점 완료 · 다시 찍으려면 A/B를 고르고 찍기';
+      stat.textContent = opt.init && pts.A === opt.init[0] && pts.B === opt.init[1] ? '앞 장에서 옮겨 온 A·B입니다 · 같은 교점이면 그대로, 아니면 A/B를 고르고 다시 찍기' : !pts.A ? `${active}를 찍으세요` : !pts.B ? 'B를 찍으세요' : '두 점 완료 · 다시 찍으려면 A/B를 고르고 찍기';
     },
     resize() { const r = cv.getBoundingClientRect(); dpr = Math.min(2, window.devicePixelRatio || 1); const first = !W; W = Math.max(50, r.width); H = Math.max(50, r.height); cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr); if (first) P.fit(); else P.draw(); },
   };
@@ -5942,8 +5949,9 @@ function alignPane(title, sheet, src, opt) {
     h('div', { class: 'al-wrap' }, cv), stat);
   return P;
 }
-/** 기준점 맞추기 → { a } (옮기는 식) / null(취소) */
-function alignDialog(sheet, oldSrc, cand, newSrc) {
+/** 기준점 맞추기 → { a, ptsR } (옮기는 식, 새 도면에서 찍은 A·B) / null(취소·그만두기) / 'skip'(묶음: 이 장 건너뛰기)
+ *  opt.step = '2/5', opt.prefillR = [A, B] 새 도면 쪽 미리 채울 점, opt.batch = 묶어서 교체 중 */
+function alignDialog(sheet, oldSrc, cand, newSrc, opt = {}) {
   return new Promise(res => {
     let a = null;
     const kindName = s => ({ pdf: 'PDF', image: '이미지', dxf: 'CAD' })[s.src.kind] || '';
@@ -5961,17 +5969,18 @@ function alignDialog(sheet, oldSrc, cand, newSrc) {
       info.classList.toggle('warn', warns.length > 0);
     };
     const L = alignPane(`지금 도면 (${kindName(sheet)})`, sheet, oldSrc, { marks: oldMarks, onChange: () => update() });
-    const R = alignPane(`새 도면 (${kindName(cand)})`, cand, newSrc, { marks: () => (a ? oldMarks().map(([x, y, no]) => [...simApply(a, x, y), no]) : []), onChange: () => update(), markColor: '#d1342f' });
+    const R = alignPane(`새 도면 (${kindName(cand)})${cand.name ? ' · ' + cand.name : ''}`, cand, newSrc, { init: opt.prefillR || null, marks: () => (a ? oldMarks().map(([x, y, no]) => [...simApply(a, x, y), no]) : []), onChange: () => update(), markColor: '#d1342f' });
     const back = h('div', { class: 'dlg-back al-back' });
     const close = v => { ro.disconnect(); window.removeEventListener('keydown', onKey, true); back.remove(); res(v); };
     const onKey = e => { if (e.key === 'Escape') { e.stopPropagation(); close(null); } };
-    okBtn.onclick = () => { if (a) close({ a }); };
+    okBtn.onclick = () => { if (a) close({ a, ptsR: [R.pts.A, R.pts.B] }); };
     const box = h('div', { class: 'dlg al-dlg', role: 'dialog', 'aria-modal': 'true' },
-      h('h2', null, `‘${sheet.name}’ 도면 교체 – 기준점 맞추기`),
+      h('h2', null, `${opt.step ? `[${opt.step}] ` : ''}‘${sheet.name}’ 도면 교체 – 기준점 맞추기`),
       h('div', { class: 'al-panes' }, L.el, R.el),
       info,
       h('div', { class: 'dlg-btns' }, h('small', { class: 'hint', style: { marginRight: 'auto' } }, '확대: 두 손가락·마우스 휠 · 이동: 끌기 · CAD 도면은 선 교점에 자동으로 붙습니다'),
-        h('button', { type: 'button', class: 'btn', onclick: () => close(null) }, '취소'), okBtn));
+        opt.batch ? h('button', { type: 'button', class: 'btn', onclick: () => close(null) }, '그만두기') : h('button', { type: 'button', class: 'btn', onclick: () => close(null) }, '취소'),
+        opt.batch ? h('button', { type: 'button', class: 'btn', onclick: () => close('skip') }, '이 장 건너뛰기') : null, okBtn));
     box.__al = { L, R };   // 시험용
     back.append(box); $('#dlg-root').append(back);
     window.addEventListener('keydown', onKey, true);
@@ -6002,14 +6011,15 @@ function xformCalib(calib, f, newKind) {
   if (!calib || newKind === 'dxf' || calib.type !== 'pts') return null;
   const c = JSON.parse(JSON.stringify(calib)); [c.a.wx, c.a.wy] = f(c.a.wx, c.a.wy); [c.b.wx, c.b.wy] = f(c.b.wx, c.b.wy); return c;
 }
-function afterSheetSourceChange(s, msg) {
+function afterSheetSourceChange(s, msg, quiet) {
   V.views.delete(s.id); touch(); fillSheetSelect(); updatePeekBtn();
   makeSheetThumb(s).then(() => { touch(); if (S.view === 'sheets') renderSheets(); }).catch(() => { });
+  if (quiet) return;   // 묶어서 교체: 다 끝나고 한 번에
   if (S.view === 'sheets') renderSheets();
   showView('survey'); openSheet(s.id);
   toast(msg, { ms: 6500 });
 }
-function applyReplace(s, cand, a) {
+function applyReplace(s, cand, a, quiet) {
   const f = (x, y) => simApply(a, x, y);
   s.replaced = { at: Date.now(), src: s.src, clip: s.clip || null, clipHard: !!s.clipHard, calib: s.calib || null, a };
   xformSheetItems(s, f);
@@ -6017,7 +6027,7 @@ function applyReplace(s, cand, a) {
   s.clip = cand.clip ? { ...cand.clip } : xformBox(s.clip, f); s.clipHard = !!cand.clip;
   s.calib = calib; s.src = cand.src;
   clearUndo();
-  afterSheetSourceChange(s, '도면을 바꾸고 조사위치를 옮겼습니다. 어긋난 위치는 선택·이동으로 조정하세요 (펜으로 꾹 누르면 번호와 화살표가 함께 움직임)');
+  afterSheetSourceChange(s, '도면을 바꾸고 조사위치를 옮겼습니다. 어긋난 위치는 선택·이동으로 조정하세요 (펜으로 꾹 누르면 번호와 화살표가 함께 움직임)', quiet);
 }
 async function revertReplace(s) {
   const r = s.replaced; if (!r || lockGuard()) return;
@@ -6028,6 +6038,114 @@ async function revertReplace(s) {
   delete s.replaced;
   clearUndo();
   afterSheetSourceChange(s, '바꾸기 전 도면으로 되돌렸습니다');
+}
+
+/* ================= 여러 장 묶어서 교체 =================
+ * 새 도면 파일(도곽 여러 장 DXF · 여러 쪽 PDF · 파일 여러 개)을 한 번 고르면 층 이름으로 짝을 지어 두고,
+ * 장마다 기준점만 맞춤. 새 도면 쪽 A·B는 앞 장 자리(도곽 위치만큼 옮김)를 미리 채워 두어 보통 사진 쪽 두 점만 찍으면 됨 */
+/** 층 이름 → 비교용 키: 지하1층·B1·B1F → B1, 지상1층·1층·1F → 1, 지붕·옥탑·RF·PH → R */
+function floorKey(name) {
+  const t = String(name || '').replace(/\s+/g, '').toUpperCase();
+  let m = t.match(/지하(\d+)층?/) || t.match(/B(\d+)F?(?![0-9])/); if (m) return 'B' + (+m[1]);
+  if (/지붕|옥탑|RF|PH|ROOF/.test(t)) return 'R';
+  m = t.match(/(\d+)층/) || t.match(/(?:^|[^0-9A-Z])(\d+)F(?![0-9])/) || t.match(/^(\d+)F/); if (m) return String(+m[1]);
+  return '';
+}
+/** 새 도면 파일들 → 새 도면 후보 목록 (시트·쪽마다 하나) */
+async function replacePool(files, keys) {
+  const pool = [];
+  const mk = (name, src, clip, extra) => Object.assign({ id: 'replace-' + uid(), name, src, clip: clip || null, clipHard: !!clip, calib: null, markers: [], strokes: [], texts: [], shapes: [], ap: [], walls: [] }, extra || {});
+  for (const f of files) {
+    const ext = extOf(f.name), base = f.name.replace(/\.[^.]+$/, '');
+    try {
+      if (ext === 'dxf') {
+        let d = parseDXF(decodeDXF(await f.arrayBuffer())); if (!d.ents.length) throw new Error('그릴 객체가 없는 DXF입니다');
+        const flat = flattenDXF(d); let frames = []; try { frames = detectDXFSheets(d, flat, base); } catch (e) { frames = []; } d = null;
+        const key = 'src_' + uid(); await IDB.put('blobs', key, new Blob([await f.arrayBuffer()], { type: 'application/dxf' })); keys.push(key); cacheSrc(key + '#0', flat);
+        if (frames.length >= 2) for (const fr of frames) pool.push(mk(fr.name, { kind: 'dxf', key, file: f.name }, { x0: fr.x0, y0: fr.y0, x1: fr.x1, y1: fr.y1 }, { flat }));
+        else pool.push(mk(base, { kind: 'dxf', key, file: f.name }, null, { flat }));
+      } else if (ext === 'pdf') {
+        pdfReady(); const buf = await f.arrayBuffer(); const key = 'src_' + uid(); await IDB.put('blobs', key, buf.slice(0)); keys.push(key);
+        const doc = await getPdf(key);
+        for (let p = 1; p <= doc.numPages; p++) pool.push(mk(doc.numPages > 1 ? `${base} ${p}쪽` : base, { kind: 'pdf', key, page: p, file: f.name }, null, { doc }));
+      } else if (/^(png|jpe?g|webp|bmp|gif)$/.test(ext) || (f.type || '').startsWith('image/')) {
+        const key = 'src_' + uid(); await IDB.put('blobs', key, f); keys.push(key);
+        pool.push(mk(base, { kind: 'image', key, file: f.name }, null, { file: f }));
+      } else toast(`${f.name}: PDF·이미지·DXF만 됩니다`);
+    } catch (e) { toast(`${f.name}을 불러오지 못했습니다: ${e.message}`, { ms: 6000 }); }
+  }
+  return pool;
+}
+/** 짝짓기 창의 새 도면 미리보기 */
+async function drawCandPreview(cv, c) {
+  const g = cv.getContext('2d'); g.fillStyle = '#fff'; g.fillRect(0, 0, cv.width, cv.height); if (!c) return;
+  try {
+    if (c.src.kind === 'dxf') { const part = c.clip ? clipDXFSource(c.flat, c.clip) : c.flat, b = c.clip || c.flat.bounds, sc = Math.min(cv.width / (b.x1 - b.x0), cv.height / (b.y1 - b.y0)); drawSource(g, part, { s: sc, tx: (cv.width - (b.x1 - b.x0) * sc) / 2 - b.x0 * sc, ty: (cv.height - (b.y1 - b.y0) * sc) / 2 - b.y0 * sc }, cv.width, cv.height, { colorMode: 'dark', minText: 99 }); }
+    else if (c.src.kind === 'pdf') { const pg = await c.doc.getPage(c.src.page), v1 = pg.getViewport({ scale: 1 }), sc = Math.min(cv.width / v1.width, cv.height / v1.height), vp = pg.getViewport({ scale: sc }); await pg.render({ canvasContext: g, viewport: vp, transform: [1, 0, 0, 1, (cv.width - vp.width) / 2, (cv.height - vp.height) / 2] }).promise; }
+    else { const bm = await createImageBitmap(c.file), sc = Math.min(cv.width / bm.width, cv.height / bm.height); g.drawImage(bm, (cv.width - bm.width * sc) / 2, (cv.height - bm.height * sc) / 2, bm.width * sc, bm.height * sc); if (bm.close) bm.close(); }
+  } catch (e) { /* 미리보기 실패는 무시 */ }
+}
+/** 지금 도면마다 새 도면 고르기 → [[sheet, cand], …] / null(취소) */
+async function pickReplacePairs(pool) {
+  const ss = S.proj.sheets, pre = typeof SHSEL !== 'undefined' && SHSEL.ids.size > 1 ? SHSEL.ids : null, used = new Set(), rows = [];
+  // 기본 짝: 층 이름이 같은 것 → (고른 도면이 있으면) 남은 것 차례로
+  const guess = new Map();
+  for (const s of ss) { const k = floorKey(s.name); if (!k) continue; const c = pool.find(q => !used.has(q) && floorKey(q.name) === k); if (c) { guess.set(s, c); used.add(c); } }
+  if (pre) for (const s of ss) if (pre.has(s.id) && !guess.has(s)) { const c = pool.find(q => !used.has(q)); if (c) { guess.set(s, c); used.add(c); } }
+  if (pool.length === 1 && !guess.size) { const s = ss.find(x => !isRefSheet(x)); if (s) guess.set(s, pool[0]); }
+  const kindOf = s => ({ pdf: 'PDF', image: '이미지', dxf: 'CAD' })[s.src.kind] || '';
+  const grid = h('div', { class: 'rb-grid' }, h('b', null, '지금 도면'), h('b', null, '바꿀 새 도면'), h('b', null, '미리보기'));
+  for (const s of ss) {
+    const sel = h('select', { class: 'in', 'aria-label': `${s.name} 바꿀 도면` }, h('option', { value: '' }, '(바꾸지 않음)'), ...pool.map((c, i) => h('option', { value: String(i) }, c.name)));
+    const cv = h('canvas', { width: 220, height: 140, class: 'rb-cv' });
+    const g = guess.get(s); if (g) sel.value = String(pool.indexOf(g));
+    sel.onchange = () => drawCandPreview(cv, pool[+sel.value] || null);
+    rows.push({ s, sel });
+    grid.append(h('div', { class: 'rb-old' }, h('div', null, s.name), h('small', null, kindOf(s) + (s.markers.length ? ` · 조사위치 ${s.markers.length}` : ''))), sel, cv);
+    setTimeout(() => drawCandPreview(cv, g || null), 30 + rows.length * 60);
+  }
+  const ok = await dialog({ title: '여러 장 묶어서 교체 – 짝 맞추기', wide: true,
+    body: [h('p', { class: 'hint', style: { margin: 0 } }, '지금 도면마다 바꿀 새 도면을 고르세요. 층 이름이 같으면 미리 골라 두었습니다. 다음 단계에서 장마다 기준점 A·B를 맞춥니다.'), grid],
+    buttons: [{ label: '취소', value: false }, { label: '기준점 맞추기 시작', cls: 'pri', value: () => (rows.some(r => r.sel.value !== '') ? true : (toast('바꿀 도면을 하나 이상 고르세요'), undefined)) }] });
+  if (!ok) return null;
+  return rows.filter(r => r.sel.value !== '').map(r => [r.s, pool[+r.sel.value]]);
+}
+/** 앞 장에서 새 도면 쪽에 찍은 A·B → 이번 새 도면에서의 자리 (같은 DXF의 다른 도곽이면 도곽 위치만큼 옮기고 가까운 교점에 붙임) */
+function prefillFrom(prev, prevCand, cand, newSrc) {
+  if (!prev || !prevCand || prev.some(q => !q)) return null;
+  if (prevCand.src.kind !== cand.src.kind) return null;
+  let dx = 0, dy = 0;
+  if (cand.src.kind === 'dxf') { if (prevCand.clip && cand.clip) { dx = cand.clip.x0 - prevCand.clip.x0; dy = cand.clip.y0 - prevCand.clip.y0; } }   // 한 파일의 도곽끼리: 도곽 위치만큼 / 층마다 따로 된 파일: 같은 원점으로 봄
+  else if (cand.src.kind !== 'pdf') return null;   // 사진은 장마다 달라 미리 채우지 않음
+  const b = sheetBounds(cand, newSrc), tol = Math.hypot(b.x1 - b.x0, b.y1 - b.y0) * 0.015;
+  const out = prev.map(([x, y]) => { const q = [x + dx, y + dy]; return snapDXFPoint(newSrc, q[0], q[1], tol) || q; });
+  return out.every(([x, y]) => x >= b.x0 && x <= b.x1 && y >= b.y0 && y <= b.y1) ? out : null;
+}
+/** 2 도면 › 여러 장 교체 */
+async function replaceBatchFlow() {
+  if (!S.proj || lockGuard()) return;
+  if (!S.proj.sheets.length) { toast('바꿀 도면이 없습니다'); return; }
+  const files = await pickFiles({ accept: '.pdf,.dxf,.png,.jpg,.jpeg,.webp,.bmp,image/*,application/pdf', multiple: true }); if (!files.length) return;
+  const keys = [], prog = h('div', { class: 'dlg-back' }, h('div', { class: 'dlg' }, h('h2', null, '새 도면 읽는 중…'), h('p', { style: { margin: 0 } }, '도면 시트를 나누고 있습니다.')));
+  $('#dlg-root').append(prog);
+  let pool; try { pool = await replacePool(files, keys); } finally { prog.remove(); }
+  const cleanup = async () => { const keep = new Set(projectBlobKeys(S.proj, false)); for (const k of keys) if (!keep.has(k)) await IDB.del('blobs', k).catch(() => { }); };
+  if (!pool.length) { await cleanup(); return; }
+  const pairs = await pickReplacePairs(pool);
+  if (!pairs || !pairs.length) { await cleanup(); return; }
+  const done = []; let prevR = null, prevCand = null, stopped = false;
+  for (const [i, [s, cand]] of pairs.entries()) {
+    let oldSrc, newSrc;
+    try { oldSrc = await loadSource(s); newSrc = await loadSource(cand); } catch (e) { toast(`${s.name}: 도면을 열지 못해 건너뜁니다 (${e.message})`, { ms: 5000 }); continue; }
+    const res = await alignDialog(s, oldSrc, cand, newSrc, { batch: true, step: `${i + 1}/${pairs.length}`, prefillR: prefillFrom(prevR, prevCand, cand, newSrc) });
+    if (res === 'skip') continue;
+    if (!res) { stopped = true; break; }
+    applyReplace(s, cand, res.a, true); done.push(s); prevR = res.ptsR; prevCand = cand;
+  }
+  await cleanup();
+  if (!done.length) { if (S.view === 'sheets') renderSheets(); toast(stopped ? '교체를 그만두었습니다' : '바꾼 도면이 없습니다'); return; }
+  renderSheets();
+  toast(`${done.length}장을 바꿨습니다${stopped ? ' (나머지는 그만둠)' : ''}: ${done.map(s => s.name).join(', ')}. 어긋난 위치는 3 현장조사에서 선택·이동으로 조정하세요. 도면마다 ‘교체·되돌리기’로 되돌릴 수 있습니다.`, { ms: 8000 });
 }
 
 /* ================= 일람표(참고용 도면) 빠르게 보기 =================
@@ -6494,6 +6612,7 @@ async function init() {
   $('#btnNewProj').onclick = newProjectFlow;
   $('#btnImportProj').onclick = importProjectZip;
   $('#btnAddSheet').onclick = () => addSheetsFlow();
+  $('#btnReplaceSheets').onclick = () => replaceBatchFlow();
   $('#btnShotSheet').onclick = shotSheetFlow;
   window.addEventListener('pagehide', () => flushOnLeave());
   document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') flushOnLeave(); else checkNewerElsewhere(); });
