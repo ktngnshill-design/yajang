@@ -332,6 +332,8 @@ input.in.hm-memo { margin-left: 106px; width: calc(100% - 106px - 42px); }
 .ref-btn { pointer-events: auto; display: flex; align-items: center; gap: 6px; min-height: 42px; padding: 0 12px 0 10px; border: 1px solid var(--line); border-radius: 10px; background: #fff; color: var(--navy-ink); font-size: 14.5px; cursor: pointer; box-shadow: 0 2px 8px rgba(20,35,60,.16); white-space: nowrap; }
 .ref-btn svg { color: var(--navy); flex: none; }
 .ref-btn:active { background: var(--tint); }
+.ref-btn.mason-btn svg { color: #a0522d; }
+.ref-btn.mason-btn.done { border-color: #2f8a57; }
 .peek { position: absolute; inset: 0; z-index: 7; display: flex; flex-direction: column; background: #e3e8ef; }
 .pk-bar { display: flex; flex-direction: column; gap: 6px; padding: 8px 10px; background: #fff; border-bottom: 1px solid var(--line); min-width: 0; }
 .pk-row { display: flex; align-items: center; gap: 8px; min-width: 0; }
@@ -487,6 +489,19 @@ body.locked #apBar .ap-seg:not(.thick):not(.snap) { pointer-events: none; opacit
 #handoffBody .stats { display: flex; gap: 8px; flex-wrap: wrap; }
 .handoff-steps { margin: 0 0 12px; padding-left: 4px; list-style: none; display: flex; flex-direction: column; gap: 10px; }
 .handoff-steps li b { color: var(--navy-ink); }
+/* 도면 교체 – 기준점 맞추기 */
+.al-back { padding: 10px; }
+.dlg.al-dlg { width: min(1600px, 100%); height: calc(100dvh - 20px); max-height: none; }
+.al-panes { flex: 1; min-height: 0; display: grid; grid-template-columns: 1fr 1fr; gap: 10px; padding: 0 14px; }
+@media (orientation: portrait) { .al-panes { grid-template-columns: 1fr; grid-template-rows: 1fr 1fr; } }
+.al-pane { display: flex; flex-direction: column; min-height: 0; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; background: #fff; }
+.al-head { display: flex; align-items: center; gap: 6px; padding: 6px 8px; border-bottom: 1px solid var(--line); }
+.al-head .chip { min-width: 46px; justify-content: center; font-weight: 700; }
+.al-wrap { flex: 1; min-height: 0; position: relative; }
+.al-cv { position: absolute; inset: 0; width: 100%; height: 100%; touch-action: none; display: block; cursor: crosshair; }
+.al-stat { padding: 4px 8px; color: var(--muted); font-size: 12.5px; border-top: 1px solid var(--line); }
+.al-info { padding: 8px 16px 0; font-size: 14px; line-height: 1.5; }
+.al-info.warn { color: #b5470c; font-weight: 700; }
 
 </style>
 </head><body>
@@ -725,7 +740,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
 </script>
 
 <script>
-const APP_VERSION = '2026.10.21-1722';
+const APP_VERSION = '2026.10.27-1426';
 const APP_EDITION = 'field';
 'use strict';
 /* ================= 기본 유틸 ================= */
@@ -1300,7 +1315,7 @@ async function loadProjectList() {
 function projectBlobKeys(p, withLinked = true) {
   const keys = new Set();
   const addShots = list => { for (const sh of (list || [])) { keys.add(sh.key); if (sh.th) keys.add(sh.th); } };
-  for (const s of p.sheets) { if (s.src?.key) keys.add(s.src.key); if (s.thumb) keys.add(s.thumb); for (const m of s.markers) addShots(m.shots); for (const a of (s.ap || [])) addShots(a.shots); for (const w of (s.walls || [])) addShots(w.shots); }
+  for (const s of p.sheets) { if (s.src?.key) keys.add(s.src.key); if (s.replaced?.src?.key) keys.add(s.replaced.src.key); if (s.thumb) keys.add(s.thumb); for (const m of s.markers) addShots(m.shots); for (const a of (s.ap || [])) addShots(a.shots); for (const w of (s.walls || [])) addShots(w.shots); }
   if (p.ap) for (const b of checklistBlocks(p)) addShots(b.o.shots);
   if (withLinked) for (const f of p.files) { keys.add(f.key); if (f.th) keys.add(f.th); }
   return keys;
@@ -3353,7 +3368,7 @@ function dimLabelOf(m, k) {
   return map[k] || k;
 }
 function getVal(m, k) { return (DIM_KEYS.includes(k) ? m.dim[k] : m.rebar[k]) ?? ''; }
-function setVal(m, k, v) {
+function setVal(m, k, v, solo) {
   v = v == null ? '' : String(v).replace(/[^0-9.]/g, '');
   if (DIM_KEYS.includes(k)) { m.dim[k] = v; if (v) m.items.dim = true; } else m.rebar[k] = v;
   const pm = m.type === '보' && /^(ts|hb|h)([IJ]?)$/.exec(k);
@@ -3363,6 +3378,8 @@ function setVal(m, k, v) {
     if (q === 'h' && hh != null && ts != null) D['hb' + P] = String(hh - ts);
     if (q === 'ts' && hh != null && hb == null) D['hb' + P] = String(hh - (ts || 0));
   }
+  // 보 I·M·J를 여러 개 같이 고른 동안: 고른 위치의 칸을 고치면 같이 고른 다른 위치도 같은 값
+  if (m.type === '보' && !solo) { const pk = beamKeyPos(m, k), sel = pk ? beamPosSet(m) : []; if (pk && sel.length > 1 && sel.includes(pk.P)) for (const P of sel) if (P !== pk.P) setVal(m, pk.key(P), v, true); }
 }
 /* 기둥 철근: 모서리 4개(켜짐/꺼짐) + 각 면의 중간 철근 개수 → 한 면만 탐사한 경우도 그릴 수 있음 */
 function colBars(r) {
@@ -3402,8 +3419,24 @@ function colMainText(r, u = '개') { const c = colMainCount(r); return !c ? '' :
 function colBarCount(r) { const cb = colBars(r); return +cb.TL + +cb.TR + +cb.BR + +cb.BL + cb.T + cb.B + cb.L + cb.R; }
 
 /* 보는 I · M · J 위치를 판 위 버튼으로 바꿔 가며 그림 (하부근·1·2단 판정·위치별 치수). 지금 보는 위치는 화면 상태로만 기억 (처음엔 M) */
+/* 여러 위치를 같이 고를 수 있음 (예: I·J 단부가 같을 때 한 번에). 판에는 첫 위치를 그리고, 찍은 철근·판정·치수·늑근은 고른 위치 모두에 같은 값 */
 const BOARD_POS = new WeakMap();
-const beamPosOf = m => { const p = BOARD_POS.get(m); return p === 'I' || p === 'J' ? p : 'M'; };
+const beamPosSet = m => { const a = BOARD_POS.get(m); const v = Array.isArray(a) ? BEAM_POS.filter(P => a.includes(P)) : []; return v.length ? v : ['M']; };
+const beamPosOf = m => beamPosSet(m)[0];
+/** 하부근(1단·2단·판정)이 위치끼리 같은가 */
+const beamBotSig = (r, P) => [numv(r[bkey('nbm', P)]) || 0, numv(r[bkey('nb2', P)]) || 0, r[bkey('layB', P)] || ''].join('|');
+/** 같이 고른 위치들의 하부근을 첫 위치 값으로 맞춤 */
+function syncBeamBottom(m) {
+  const sel = beamPosSet(m), r = m.rebar, P0 = sel[0];
+  for (const P of sel.slice(1)) for (const k of ['nbm', 'nb2', 'layB']) r[bkey(k, P)] = r[bkey(k, P0)] || '';
+}
+/** 보에서 위치가 정해진 칸이면 { P, key(P) } (하부근 개수·늑근 간격, 위치별 치수를 켰을 때 치수) */
+function beamKeyPos(m, k) {
+  let x = /^(nbm|nb2)([IJ]?)$/.exec(k); if (x) return { P: x[2] || 'M', key: P => bkey(x[1], P) };
+  const sp = Object.keys(SS_KEY).find(P => SS_KEY[P] === k); if (sp) return { P: sp, key: P => SS_KEY[P] };
+  x = m.dimPos && /^(b|ts|hb|h)([IJ]?)$/.exec(k); if (x) return { P: x[2] || 'M', key: P => bkey(x[1], P) };
+  return null;
+}
 /** 원형기둥 단면 크기(판 좌표): 가운데·반지름 */
 const BCIRC = { cx: 200, cy: 116, R: 86 };
 function boardLayout(m, posOverride, exp) {
@@ -3464,7 +3497,8 @@ function boardLayout(m, posOverride, exp) {
     const gap2 = clamp((yb - y0) * 0.075, 10, 15);
     const yT1 = y0 + c + 1, yT2 = yT1 + gap2, yB1 = yb - c - 1, yB2 = yB1 - gap2;
     row(Math.min(12, numv(r.nt) || 0), yT1, 'T'); row(Math.min(12, numv(r.nt2) || 0), yT2, 'T2');
-    const kB = bkey('nbm', bp), kB2 = bkey('nb2', bp), layB = r[bkey('layB', bp)], pl = bp;
+    const sel = posOverride ? [bp] : beamPosSet(m), diff = sel.some(P => beamBotSig(r, P) !== beamBotSig(r, bp));
+    const kB = bkey('nbm', bp), kB2 = bkey('nb2', bp), layB = r[bkey('layB', bp)], pl = sel.join('·') + (diff ? ' (값 다름)' : '');
     row(Math.min(12, numv(r[kB]) || 0), yB1, 'B'); row(Math.min(12, numv(r[kB2]) || 0), yB2, 'B2');
     L.beamRows = [['nt', yT1], ['nt2', yT2], [kB, yB1], [kB2, yB2]]; L.bpos = bp;
     L.guides = [[wx0 + c - 2, wx1 - c + 2, yT2, '2단']];
@@ -3475,7 +3509,7 @@ function boardLayout(m, posOverride, exp) {
     L.zone = { x0: wx0, y0, x1: wx1, y1: yb, c, mid: (y0 + yb) / 2 };
     // 늑근 간격 칸: 판에서는 I·M·J 셋 다 / 내보낼 때는 값 있는 위치만 (없으면 M)
     const sps = exp ? BEAM_POS.filter(P => getVal(m, SS_KEY[P])) : BEAM_POS;
-    (sps.length ? sps : ['M']).forEach((P, i) => { chip(SS_KEY[P], i, 4); if (P === bp && !exp) L.chips[L.chips.length - 1].cur = true; });
+    (sps.length ? sps : ['M']).forEach((P, i) => { chip(SS_KEY[P], i, 4); if (sel.includes(P) && !exp) L.chips[L.chips.length - 1].cur = true; });
     L.chipN = 4;
   } else if (t === '벽체' || t === '슬래브' || t === '조적벽') {
     const th = val('t', t === '조적벽' ? 190 : t === '슬래브' ? 150 : 200), tP = clamp(th * 0.28, 26, 90);
@@ -3884,12 +3918,13 @@ function buildBoard(m, onChange, opts = {}) {
       const [ccx, ccy, cR] = z.circ; if (Math.hypot(x - ccx, y - ccy) > cR + 10) { say('원 안쪽을 찍으세요', 1400); return; }
       r.nc = String(Math.min(24, (numv(r.nc) || 0) + 1)); say(`주근 ${r.nc}개`, 1400);
     } else if (m.type === '보') {
-      const bp = beamPosOf(m), kB = bkey('nbm', bp), kB2 = bkey('nb2', bp), kL = bkey('layB', bp);
+      const sel = beamPosSet(m), bp = sel[0], kB = bkey('nbm', bp), kB2 = bkey('nb2', bp), kL = bkey('layB', bp);
       touchBars();
       let best = L.beamRows[0], bd = 1e9; for (const row of L.beamRows) { if (row[0] === kB2 && r[kL] === '1단') continue; const dd = Math.abs(y - row[1]); if (dd < bd) { bd = dd; best = row; } }
       r[best[0]] = String((numv(r[best[0]]) || 0) + 1);
       if (best[0] === kB2 && !r[kL]) { setLayB(m, '2단', null, bp); layChips(); onChange('entries'); }   // 하부 2단에 찍으면 2단 배근으로 판정
-      say(`상부 ${r.nt || 0}${numv(r.nt2) ? ' + 2단 ' + r.nt2 : ''} · ${bp} 하부 ${r[kB] || 0}${numv(r[kB2]) ? ' + 2단 ' + r[kB2] : ''}`, 1600);
+      syncBeamBottom(m);   // 같이 고른 위치도 같은 값
+      say(`상부 ${r.nt || 0}${numv(r.nt2) ? ' + 2단 ' + r.nt2 : ''} · ${sel.join('·')} 하부 ${r[kB] || 0}${numv(r[kB2]) ? ' + 2단 ' + r[kB2] : ''}`, 1600);
     }
     else if (m.type === '벽체' || m.type === '슬래브') { r.lay = r.lay === '단배근' || r.lay === '복배근' ? '복배근' : '단배근'; say(r.lay, 1200); }
     else if (m.type === '기초') { r.lay = y < z.mid ? '상·하부근' : (r.lay || '하부근만'); say(r.lay, 1200); }
@@ -3900,7 +3935,7 @@ function buildBoard(m, onChange, opts = {}) {
     const r = m.rebar;
     if (m.type === '기둥') { const cb = colBars(r); if (b.corner) cb[b.corner] = false; else cb[b.face] = Math.max(0, cb[b.face] - 1); setColBars(r, cb); say(`주근 ${colMainText(r) || '없음'}`, 1200); }
     else if (m.type === '원형기둥') { r.nc = String(Math.max(0, (numv(r.nc) || 0) - 1)); say(`주근 ${r.nc}개`, 1200); }
-    else if (m.type === '보') { const bp = beamPosOf(m), k = { T: 'nt', T2: 'nt2', B: bkey('nbm', bp), B2: bkey('nb2', bp) }[b.face]; r[k] = String(Math.max(0, (numv(r[k]) || 0) - 1)); }
+    else if (m.type === '보') { const bp = beamPosOf(m), k = { T: 'nt', T2: 'nt2', B: bkey('nbm', bp), B2: bkey('nb2', bp) }[b.face]; r[k] = String(Math.max(0, (numv(r[k]) || 0) - 1)); if (b.face[0] === 'B') syncBeamBottom(m); }
     else if (m.type === '벽체' || m.type === '슬래브') r.lay = r.lay === '복배근' ? '단배근' : '';
     else if (m.type === '기초') r.lay = b.face === 'T' ? '하부근만' : '';
     touchBars(); changed();
@@ -4007,15 +4042,24 @@ function buildBoard(m, onChange, opts = {}) {
   const layRow = h('div', { class: 'chips' });
   const layChips = () => {
     layRow.innerHTML = ''; layRow.hidden = m.type !== '보'; if (m.type !== '보') return;
-    // 위치 I · M · J 바꿔 보기 (판에 찍는 하부근·1·2단 판정, 위치별 치수가 그 위치로 들어감)
-    const bp = beamPosOf(m), kL = bkey('layB', bp);
-    const posSeg = h('div', { class: 'bpos-seg', role: 'group', 'aria-label': '보 위치' }, BEAM_POS.map(p => h('button', { type: 'button', class: 'chip sm' + (bp === p ? ' on' : ''), 'aria-pressed': String(bp === p), title: { I: 'I 단부 (시작)', M: 'M 중앙', J: 'J 단부 (끝)' }[p], onclick: () => { if (st.target) endSession(); BOARD_POS.set(m, p); const mv = !isLocked() && moveBeamAuto(m, p); layChips(); if (mv) changed(); else draw(); say(`${p} 위치를 봅니다 · 찍는 하부근과 1·2단 판정${m.dimPos ? ', 치수' : ''}가 ${p}에 들어갑니다`, 2400); } }, p)));
+    // 위치 I · M · J: 눌러서 고르고 다시 누르면 빠짐 (여러 개 같이 고르면 같은 값으로 입력)
+    const sel = beamPosSet(m), bp = sel[0], kL = bkey('layB', bp);
+    const toggle = p => {
+      if (st.target) endSession();
+      let next = sel.includes(p) ? sel.filter(q => q !== p) : [...sel, p];
+      if (!next.length) next = [p];   // 하나는 늘 고른 상태
+      next = BEAM_POS.filter(q => next.includes(q)); BOARD_POS.set(m, next);
+      const mv = !isLocked() && moveBeamAuto(m, next[0]); layChips(); if (mv) changed(); else draw();
+      const r = m.rebar, diff = next.length > 1 && next.some(q => beamBotSig(r, q) !== beamBotSig(r, next[0]));
+      say(next.length > 1 ? `${next.join('·')} 같이 입력 – 찍는 철근·판정${m.dimPos ? '·치수' : ''}·늑근이 고른 위치 모두에 같은 값으로 들어갑니다${diff ? ` (지금 값이 달라 찍으면 ${next[0]} 기준으로 맞춤)` : ''}` : `${next[0]} 위치를 봅니다 · 다시 누르면 빠집니다`, next.length > 1 ? 3400 : 2200);
+    };
+    const posSeg = h('div', { class: 'bpos-seg', role: 'group', 'aria-label': '보 위치 (여러 개 고를 수 있음)' }, BEAM_POS.map(p => h('button', { type: 'button', class: 'chip sm' + (sel.includes(p) ? ' on' : ''), 'aria-pressed': String(sel.includes(p)), title: { I: 'I 단부 (시작)', M: 'M 중앙', J: 'J 단부 (끝)' }[p] + ' · 여러 개 같이 고를 수 있음', onclick: () => toggle(p) }, p)));
     layRow.append(h('small', { style: { alignSelf: 'center' } }, '위치'), posSeg, h('small', { style: { alignSelf: 'center', marginLeft: '6px' } }, '하부근 판정'));
-    for (const [v, lb] of [['1단', '1단 (단배근)'], ['2단', '2단 배근']]) layRow.append(h('button', { type: 'button', class: 'chip sm' + (m.rebar[kL] === v ? ' on' : ''), 'aria-pressed': String(m.rebar[kL] === v), onclick: () => { setLayB(m, m.rebar[kL] === v ? '' : v, null, bp); layChips(); changed('entries'); say(m.rebar[kL] ? `${bp} 하부근 ${m.rebar[kL] === '1단' ? '1단 (단배근)' : '2단 배근'}으로 판정` : `${bp} 하부근 판정을 지웠습니다`, 1600); } }, lb));
+    for (const [v, lb] of [['1단', '1단 (단배근)'], ['2단', '2단 배근']]) layRow.append(h('button', { type: 'button', class: 'chip sm' + (m.rebar[kL] === v ? ' on' : ''), 'aria-pressed': String(m.rebar[kL] === v), onclick: () => { const nv = m.rebar[kL] === v ? '' : v; for (const P of sel) setLayB(m, nv, null, P); layChips(); changed('entries'); say(nv ? `${sel.join('·')} 하부근 ${nv === '1단' ? '1단 (단배근)' : '2단 배근'}으로 판정` : `${sel.join('·')} 하부근 판정을 지웠습니다`, 1600); } }, lb));
   };
   layChips();
   const clearRow = h('div', { class: 'row', style: { gap: '6px', justifyContent: 'flex-end' } },
-    h('button', { class: 'btn small ghost', type: 'button', onclick: () => { const r = m.rebar; if (m.type === '기둥') setColBars(r, { TL: false, TR: false, BR: false, BL: false, T: 0, B: 0, L: 0, R: 0 }); else if (m.type === '원형기둥') r.nc = ''; else if (m.type === '보') { const bp = beamPosOf(m); r.nt = ''; r.nt2 = ''; r[bkey('nbm', bp)] = ''; r[bkey('nb2', bp)] = ''; } else r.lay = ''; touchBars(); changed(); } }, '철근 모두 지우기'),
+    h('button', { class: 'btn small ghost', type: 'button', onclick: () => { const r = m.rebar; if (m.type === '기둥') setColBars(r, { TL: false, TR: false, BR: false, BL: false, T: 0, B: 0, L: 0, R: 0 }); else if (m.type === '원형기둥') r.nc = ''; else if (m.type === '보') { r.nt = ''; r.nt2 = ''; for (const P of beamPosSet(m)) { r[bkey('nbm', P)] = ''; r[bkey('nb2', P)] = ''; } } else r.lay = ''; touchBars(); changed(); } }, '철근 모두 지우기'),
     h('button', { class: 'btn small ghost', type: 'button', onclick: () => { m.sketch = []; changed(); } }, '메모 모두 지우기'));
   hint.textContent = hintOf(st.mode);
   const el = h('div', { class: 'board' }, tools, shapeRow, layRow, h('div', { class: 'sk-wrap' }, cv), hint, clearRow);
@@ -4482,7 +4526,7 @@ function syncApBar() {
   if (V.apKind === 'wall') box.append(h('div', { class: 'ap-seg snap', role: 'group', 'aria-label': '조적벽 선 각도' }, [[true, '수평·수직·45°', '<path d="M5 19V5M5 19h14M5 19L16 8"/>'], [false, '자유 각도', '<path d="M4 17L20 8"/><circle cx="4" cy="17" r="1.8"/><circle cx="20" cy="8" r="1.8"/>']].map(([v, lb, ic]) =>
     h('button', { type: 'button', class: V.wallSnap === v ? 'on' : '', 'aria-pressed': String(V.wallSnap === v), title: v ? '수평·수직·45°로 맞춰 그리기' : '보정 없이 그은 방향 그대로', onclick: () => { V.wallSnap = v; lsSet('wallSnap', v ? '1' : '0'); syncApBar(); toast(v ? '조적벽을 수평·수직·45°로 맞춰 그립니다' : '조적벽을 그은 방향 그대로 그립니다 (끝점은 다른 벽 끝에 붙음)', { ms: 2200 }); } },
       h('span', { class: 'ap-ic', html: `<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ic}</svg>` }), h('span', null, lb)))));
-  box.append(h('button', { type: 'button', class: 'ap-ck', onclick: () => openChecklist(V.apKind === 'wall' ? 'masonry' : null) }, h('span', { html: '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="5" y="4" width="14" height="17" rx="2"/><path d="M9 4V2.8h6V4M8.5 10l1.6 1.6 3-3M8.5 16l1.6 1.6 3-3"/></svg>' }), '건물 체크리스트'));
+  box.append(h('button', { type: 'button', class: 'ap-ck', onclick: () => openChecklist() }, h('span', { html: '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="5" y="4" width="14" height="17" rx="2"/><path d="M9 4V2.8h6V4M8.5 10l1.6 1.6 3-3M8.5 16l1.6 1.6 3-3"/></svg>' }), '건물 체크리스트'));
 }
 function setApKind(k) {
   V.apKind = k; lsSet('apKind', k);
@@ -4701,8 +4745,8 @@ function renderWallPanel(P, w, keep) {
   body.append(h('div', { class: 'pn-sec' }, h('h3', null, '높이 H', h('small', null, '숫자패드의 ‘보춤’ 버튼으로 3,300-보춤')), hIn), h('div', { class: 'pn-sec' }, h('h3', null, '메모'), memo));
   // 이 벽 사진 (사진번호 연결 · 바로 찍기)
   body.append(photoBlock(w, { npk: 'wph', label: `${sh.name} ${wallName(sh, w)}`, cap: '내용 (예: 개구부, 균열, 마감 상태)', onChange: () => { npRebind(); requestRender(false); } }));
-  body.append(h('p', { class: 'hint', style: { margin: 0 } }, '선 끝을 옮기려면 선택·이동 도구로 벽을 고른 뒤 끝의 동그라미를 끄세요. 층별 조적 개체·줄눈 상태는 ‘건물 체크리스트 › 조적조’에 적습니다.'),
-    h('button', { class: 'btn', type: 'button', onclick: () => openChecklist('masonry') }, '이 층 조적조 상태 적기'));
+  body.append(h('p', { class: 'hint', style: { margin: 0 } }, '선 끝을 옮기려면 선택·이동 도구로 벽을 고른 뒤 끝의 동그라미를 끄세요. 층별 조적 개체·줄눈 상태는 3 현장조사의 ‘조적조 상태’에 적습니다.'),
+    h('button', { class: 'btn', type: 'button', onclick: () => openMasonry() }, '이 층 조적조 상태 적기'));
   P.append(h('div', { class: 'pn-foot' },
     h('button', { class: 'btn danger', type: 'button', onclick: () => { pushUndo(); removeWall(w); } }, '지우기'),
     h('span', { class: 'spacer' }),
@@ -4712,8 +4756,9 @@ function renderWallPanel(P, w, keep) {
 }
 
 /* ================= 건물 체크리스트 (층·건물 단위) ================= */
-const CK_TABS = [['masonry', '조적조'], ['finish', '마감재'], ['nonst', '비구조요소'], ['etc', 'EXP.J·주변현황'], ['qty', '조사수량'], ['draft', '보고서 문안']].filter(([k]) => k !== 'draft' || typeof apDraftTexts === 'function');   // 보고서 문안은 PC 판에만
-let CK_TAB = 'masonry';
+/* 조적조 상태(층별 조적 개체·줄눈·사춤)는 천장 마감재를 뜯고 부재 조사할 때 같이 보므로 3 현장조사의 ‘조적조 상태’ 버튼에서 입력 (openMasonry) */
+const CK_TABS = [['finish', '마감재'], ['nonst', '비구조요소'], ['etc', 'EXP.J·주변현황'], ['qty', '조사수량'], ['draft', '보고서 문안']].filter(([k]) => k !== 'draft' || typeof apDraftTexts === 'function');   // 보고서 문안은 PC 판에만
+let CK_TAB = 'finish';
 function surveySheets(p = S.proj) { return p.sheets.filter(s => !isRefSheet(s)); }
 function wallStats(s) {
   const by = {}; for (const w of s.walls || []) { const k = `${w.part || '채움벽'} ${w.thick}`; const b = by[k] || (by[k] = { n: 0, mm: 0, ok: true, part: w.part || '채움벽', t: w.thick }); b.n++; const L = wallLenMM(s, w.pts); if (L == null) b.ok = false; else b.mm += L; }
@@ -4728,7 +4773,7 @@ async function openChecklist(tab) {
     tabs.innerHTML = '';
     for (const [k, lb] of CK_TABS) tabs.append(h('button', { type: 'button', role: 'tab', class: CK_TAB === k ? 'on' : '', 'aria-selected': String(CK_TAB === k), onclick: () => { CK_TAB = k; render(); content.scrollTop = 0; } }, lb));
     content.innerHTML = '';
-    ({ masonry: ckMasonry, finish: ckFinish, nonst: ckNonst, etc: ckEtc, qty: ckQty, draft: ckDraft })[CK_TAB](content, render);
+    ({ finish: ckFinish, nonst: ckNonst, etc: ckEtc, qty: ckQty, draft: ckDraft })[CK_TAB](content, render);
     if (isLocked()) { for (const el of content.querySelectorAll('input, textarea, select, button')) el.disabled = true; content.classList.add('ro'); }   // 잠김: 보기만
     // 숫자 칸이 있는 탭만 오른쪽 아래 숫자패드
     npSlot.hidden = isLocked() || !$$('.np-f', content).length; if (!npSlot.hidden) npMount(npSlot); else npRebind();
@@ -4736,6 +4781,19 @@ async function openChecklist(tab) {
   npReset(); render();
   await dialog({ title: '건물 체크리스트 (외관조사)' + (isLocked() ? ' · 🔒 읽기 전용' : ''), wide: true, noFocus: true, body: [tabs, content], foot: npSlot, buttons: [{ label: '닫기', value: true, cls: 'pri' }] });
   npReset(); updateCounter(); if (V.panelM) renderPanel();
+}
+/** 조적조 상태 (3 현장조사 › 조적조 상태): 층별 조적 개체·줄눈·사춤 상태와 사진. 지금 보는 층이 맨 위에 펼쳐짐 */
+async function openMasonry() {
+  if (!S.proj) return;
+  const content = h('div', { class: 'ck-body' }), npSlot = h('div', { class: 'dlg-np' });
+  const render = () => {
+    content.innerHTML = ''; ckMasonry(content, render);
+    if (isLocked()) { for (const el of content.querySelectorAll('input, textarea, select, button')) el.disabled = true; content.classList.add('ro'); }
+    npSlot.hidden = isLocked() || !$$('.np-f', content).length; if (!npSlot.hidden) npMount(npSlot); else npRebind();
+  };
+  npReset(); render();
+  await dialog({ title: '조적조 상태 – 조적 개체·줄눈·사춤' + (isLocked() ? ' · 🔒 읽기 전용' : ''), wide: true, noFocus: true, body: [content], foot: npSlot, buttons: [{ label: '닫기', value: true, cls: 'pri' }] });
+  npReset(); updateCounter(); if (V.panelM) renderPanel(); updatePeekBtn();
 }
 const ckCard = (title, ...kids) => h('div', { class: 'ck-card' }, title ? h('h3', null, title) : null, ...kids);
 const ckField = (lb, ...kids) => h('div', { class: 'ck-f' }, h('span', null, lb), h('div', null, ...kids));
@@ -4748,7 +4806,7 @@ const pickN = (o, k, rerender) => v => { const a = o[k] = o[k] || []; const i = 
 
 function ckMasonry(box, rerender) {
   const p = S.proj, M = p.ap.masonry;
-  box.append(h('p', { class: 'hint', style: { margin: 0 } }, '조적벽 위치·두께는 외관조사 화면에서 ‘조적벽’으로 벽을 따라 긋습니다. 여기서는 층별 조적 개체·줄눈 상태와 사진을 적습니다.'));
+  box.append(h('p', { class: 'hint', style: { margin: 0 } }, '천장 마감재를 뜯고 부재를 조사할 때 함께 적습니다. 지금 보는 층이 맨 위에 있습니다. (조적벽 위치·두께는 4 외관조사에서 벽을 따라 긋습니다)'));
   const ss = surveySheets(p).slice().sort((a, b) => (b === V.sheet) - (a === V.sheet) || ((b.walls || []).length > 0) - ((a.walls || []).length > 0));
   for (const s of ss) {
     const has = p.ap.masonry.floors[s.id], st = wallStats(s);
@@ -5315,6 +5373,7 @@ function renderSheets() {
         h('button', { class: 'btn small', type: 'button', disabled: L || i === ss.length - 1, onclick: () => { ss.splice(i + 1, 0, ss.splice(i, 1)[0]); touch(); renderSheets(); }, 'aria-label': '아래로' }, '▼'),
         h('button', { class: 'btn small pri', type: 'button', onclick: () => { showView('survey'); openSheet(s.id); } }, '열기'),
         h('button', { class: 'btn small', type: 'button', disabled: L, onclick: () => copySheetFlow(s), title: '다른 층으로 복사' }, '복사'),
+        h('button', { class: 'btn small', type: 'button', disabled: L, onclick: () => replaceSheetFlow(s), title: s.replaced ? '다른 도면 파일로 바꾸기 · 이전 도면으로 되돌리기' : '다른 도면 파일로 바꾸기 (예: 사진 도면 → CAD) – 조사위치는 기준점 두 곳으로 맞춰 옮김' }, s.replaced ? '교체·되돌리기' : '교체'),
         h('button', { class: 'btn small danger', type: 'button', disabled: L, onclick: () => deleteSheet(s) }, '지우기')))));
   });
   paintSheetSel();
@@ -5424,17 +5483,24 @@ async function addSheetsFlow(pre) {
   if (added) toast(`도면 ${added}장을 추가했습니다. 이름을 층 이름으로 바꿔 두면 정리 파일 이름에 그대로 쓰입니다.`, { ms: 4500 });
 }
 /** DXF 도곽별 시트 고르기: 반환 [{name, clip}] (나눠서) / [] (한 장으로) / false (취소) */
-async function pickDxfSheets(flat, frames, base) {
+async function pickDxfSheets(flat, frames, base, single) {
   const rows = [];
   const grid = h('div', { style: { display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: '12px' } });
   frames.forEach((fr, i) => {
-    const cb = h('input', { type: 'checkbox', checked: true }); const nm = h('input', { class: 'in', value: fr.name, 'aria-label': `${i + 1}번 시트 이름` });
+    const cb = h('input', single ? { type: 'radio', name: 'dxfOne', checked: i === 0 } : { type: 'checkbox', checked: true }); const nm = h('input', { class: 'in', value: fr.name, 'aria-label': `${i + 1}번 시트 이름` });
     const bw = fr.x1 - fr.x0, bh = fr.y1 - fr.y0, L = 300, sc = L / Math.max(bw, bh);
     const cv = h('canvas', { width: Math.max(1, Math.round(bw * sc)), height: Math.max(1, Math.round(bh * sc)), style: { width: '100%', border: '1px solid #d6dde8', borderRadius: '6px', background: '#fff' } });
     rows.push({ fr, cb, nm });
-    grid.append(h('div', { style: { display: 'flex', flexDirection: 'column', gap: '6px' } }, cv, h('label', { class: 'check', style: { padding: 0 } }, cb, h('span', null, `${i + 1}번 시트 사용`)), nm));
+    grid.append(h('div', { style: { display: 'flex', flexDirection: 'column', gap: '6px' } }, cv, h('label', { class: 'check', style: { padding: 0 } }, cb, h('span', null, single ? `${i + 1}번 시트로 교체` : `${i + 1}번 시트 사용`)), single ? h('small', null, fr.name) : nm));
     setTimeout(() => { try { const c = cv.getContext('2d'); drawSource(c, clipDXFSource(flat, fr), { s: sc, tx: -fr.x0 * sc, ty: -fr.y0 * sc }, cv.width, cv.height, { colorMode: 'dark', minText: 99 }); } catch (e) { /* 미리보기 실패는 무시 */ } }, 30 + i * 40);
   });
+  if (single) {   // 도면 교체: 시트 하나
+    const r1 = await dialog({ title: `도면 ${frames.length}장이 들어 있는 DXF – 교체할 시트 고르기`, wide: true, body: [h('p', { class: 'hint', style: { margin: 0 } }, '지금 도면과 같은 층의 시트를 고르세요.'), grid],
+      buttons: [{ label: '취소', value: 'cancel' }, { label: '나누지 않고 전체', value: 'one' }, { label: '고른 시트로 교체', cls: 'pri', value: 'pick' }] });
+    if (r1 === 'one') return [];
+    if (r1 !== 'pick') return false;
+    const r = rows.find(q => q.cb.checked) || rows[0]; return [{ name: r.fr.name, clip: { x0: r.fr.x0, y0: r.fr.y0, x1: r.fr.x1, y1: r.fr.y1 } }];
+  }
   const res = await dialog({
     title: `도면 ${frames.length}장이 들어 있는 DXF – 시트별로 나누기`, wide: true,
     body: [h('p', { class: 'hint', style: { margin: 0 } }, '도곽(도면틀)마다 시트 한 장으로 나눕니다. 이름은 도면명에서 자동으로 가져왔으니 확인하고 필요하면 고치세요.'), grid],
@@ -5503,17 +5569,18 @@ async function pickSketchClean(file, base) {
   if (res !== 'clean') return false;
   await job; return { blob: cleaned || null, name };
 }
-async function pickPdfPages(doc, base) {
+async function pickPdfPages(doc, base, single) {
   const n = doc.numPages; const rows = [];
   const grid = h('div', { style: { display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))', gap: '10px' } });
   for (let p = 1; p <= n; p++) {
-    const cb = h('input', { type: 'checkbox', checked: true }); const nm = h('input', { class: 'in', value: `${base} ${p}쪽` });
+    const cb = h('input', single ? { type: 'radio', name: 'pdfOne', checked: p === 1 } : { type: 'checkbox', checked: true }); const nm = h('input', { class: 'in', value: `${base} ${p}쪽` });
     const cv = h('canvas', { style: { width: '100%', border: '1px solid #d6dde8', borderRadius: '6px', background: '#fff' } });
     rows.push({ p, cb, nm });
     grid.append(h('div', { style: { display: 'flex', flexDirection: 'column', gap: '6px' } }, cv, h('label', { class: 'check', style: { padding: 0 } }, cb, h('span', null, `${p}쪽 사용`)), nm));
     doc.getPage(p).then(async pg => { const vp1 = pg.getViewport({ scale: 1 }); const sc = 300 / Math.max(vp1.width, vp1.height); const vp = pg.getViewport({ scale: sc }); cv.width = vp.width; cv.height = vp.height; await pg.render({ canvasContext: cv.getContext('2d'), viewport: vp }).promise; }).catch(() => { });
   }
-  const ok = await dialog({ title: `PDF ${n}쪽 – 도면으로 쓸 쪽 고르기`, wide: true, body: [h('p', { class: 'hint', style: { margin: 0 } }, '쪽마다 도면 한 장이 됩니다. 이름은 층 이름(예: 지상2층)으로 바꿔 두세요.'), grid], buttons: [{ label: '취소', value: false }, { label: '추가', cls: 'pri', value: true }] });
+  const ok = single ? await dialog({ title: `PDF ${n}쪽 – 교체할 쪽 고르기`, wide: true, body: [h('p', { class: 'hint', style: { margin: 0 } }, '지금 도면과 같은 층의 쪽을 고르세요.'), grid], buttons: [{ label: '취소', value: false }, { label: '고른 쪽으로 교체', cls: 'pri', value: true }] })
+    : await dialog({ title: `PDF ${n}쪽 – 도면으로 쓸 쪽 고르기`, wide: true, body: [h('p', { class: 'hint', style: { margin: 0 } }, '쪽마다 도면 한 장이 됩니다. 이름은 층 이름(예: 지상2층)으로 바꿔 두세요.'), grid], buttons: [{ label: '취소', value: false }, { label: '추가', cls: 'pri', value: true }] });
   if (!ok) return null;
   return rows.filter(r => r.cb.checked).map(r => ({ p: r.p, name: r.nm.value.trim() || `${base} ${r.p}쪽` }));
 }
@@ -5712,6 +5779,257 @@ async function importLinkFiles(kind, files) {
   else toast(`${files.length - skipped}개 파일을 불러왔습니다${skipped ? ` (${skipped}개는 이미지가 아니라 건너뜀)` : ''}`);
 }
 
+/* ================= 도면 교체 =================
+ * 사진·손그림 도면으로 조사한 뒤 CAD 도면 등이 생기면 그 도면으로 바꿈.
+ * 지금 도면과 새 도면에서 같은 곳(예: X1-Y1, X4-Y4 교점) 두 군데를 A·B로 찍으면
+ * 조사위치·외관조사 표시·조적벽·펜 메모·글자·도형을 새 도면 좌표로 옮김 (이동·회전·축척).
+ * 남은 어긋남은 3 현장조사에서 선택·이동(펜으로 꾹 누르면 번호와 화살표가 함께)으로 조정.
+ * 바로 전 도면은 남겨 두어 '이전 도면으로 되돌리기' 가능 (교체한 뒤 옮기거나 새로 찍은 위치도 같이 되돌아감) */
+
+/** 2 도면 › 교체 */
+async function replaceSheetFlow(s) {
+  if (!s || lockGuard()) return;
+  if (s.replaced) {
+    const c = await dialog({ title: `‘${s.name}’ 도면 교체`, body: h('p', { style: { margin: 0 } }, `${fmtTime(s.replaced.at)}에 도면을 바꿨습니다. 새 파일로 다시 바꾸거나, 바꾸기 전 도면으로 되돌릴 수 있습니다.`),
+      buttons: [{ label: '취소', value: null }, { label: '이전 도면으로 되돌리기', value: 'revert' }, { label: '새 파일로 교체', cls: 'pri', value: 'new' }] });
+    if (c === 'revert') { await revertReplace(s); return; }
+    if (c !== 'new') return;
+  }
+  const [f] = await pickFiles({ accept: '.pdf,.dxf,.png,.jpg,.jpeg,.webp,.bmp,image/*,application/pdf', multiple: false }); if (!f) return;
+  let cand;
+  try { cand = await replaceCandidate(f); } catch (e) { toast(`${f.name}을 불러오지 못했습니다: ${e.message}`, { ms: 6000 }); return; }
+  if (!cand) return;
+  let oldSrc = null, newSrc = null;
+  try { oldSrc = await loadSource(s); newSrc = await loadSource(cand); }
+  catch (e) { toast('도면을 열지 못했습니다: ' + e.message, { ms: 6000 }); await IDB.del('blobs', cand.src.key).catch(() => { }); return; }
+  const res = await alignDialog(s, oldSrc, cand, newSrc);
+  if (!res) { await IDB.del('blobs', cand.src.key).catch(() => { }); return; }   // 취소: 방금 넣은 새 파일 지움
+  applyReplace(s, cand, res.a);
+}
+/** 새 도면 파일 → { src, clip, clipHard } (PDF 여러 쪽·DXF 여러 시트면 하나 고르기) / null(취소) */
+async function replaceCandidate(f) {
+  const ext = extOf(f.name), base = f.name.replace(/\.[^.]+$/, '');
+  const mk = (src, clip) => ({ id: 'replace-' + uid(), name: base, src, clip: clip || null, clipHard: !!clip, calib: null, markers: [], strokes: [], texts: [], shapes: [], ap: [], walls: [] });
+  if (ext === 'pdf') {
+    pdfReady(); const buf = await f.arrayBuffer(); const key = 'src_' + uid(); await IDB.put('blobs', key, buf.slice(0));
+    const doc = await getPdf(key); let page = 1;
+    if (doc.numPages > 1) { const pages = await pickPdfPages(doc, base, true); if (!pages || !pages.length) { await IDB.del('blobs', key).catch(() => { }); return null; } page = pages[0].p; }
+    return mk({ kind: 'pdf', key, page, file: f.name });
+  }
+  if (ext === 'dxf') {
+    let d = parseDXF(decodeDXF(await f.arrayBuffer()));
+    if (!d.ents.length) throw new Error('그릴 객체가 없는 DXF입니다');
+    const flat = flattenDXF(d); let frames = [];
+    try { frames = detectDXFSheets(d, flat, base); } catch (e) { frames = []; }
+    d = null;
+    let clip = null;
+    if (frames.length >= 2) { const pick = await pickDxfSheets(flat, frames, base, true); if (pick === false) return null; if (pick.length) clip = pick[0].clip; }
+    const key = 'src_' + uid(); await IDB.put('blobs', key, new Blob([await f.arrayBuffer()], { type: 'application/dxf' }));
+    cacheSrc(key + '#0', flat);
+    return mk({ kind: 'dxf', key, file: f.name }, clip);
+  }
+  if (/^(png|jpe?g|webp|bmp|gif)$/.test(ext) || (f.type || '').startsWith('image/')) {
+    const pick = await pickSketchClean(f, base); if (pick === false) return null;
+    const key = 'src_' + uid(); await IDB.put('blobs', key, pick.blob || f);
+    return mk({ kind: 'image', key, file: f.name });
+  }
+  throw new Error('PDF·이미지·DXF만 됩니다');
+}
+
+/* --- 기준점 맞추기 창: 왼쪽 지금 도면, 오른쪽 새 도면. 각 도면에서 A·B를 찍음 --- */
+/** 같은 곳 두 군데 → 옮기는 식 a·z + b (복소수: 이동·회전·축척). a = [ar, ai, bx, by] */
+function similarityFrom(A1, B1, A2, B2) {
+  const ux = B1[0] - A1[0], uy = B1[1] - A1[1], vx = B2[0] - A2[0], vy = B2[1] - A2[1], den = ux * ux + uy * uy;
+  if (!(den > 0)) return null;
+  const ar = (vx * ux + vy * uy) / den, ai = (vy * ux - vx * uy) / den;
+  return [ar, ai, A2[0] - (ar * A1[0] - ai * A1[1]), A2[1] - (ai * A1[0] + ar * A1[1])];
+}
+const simApply = (a, x, y) => [a[0] * x - a[1] * y + a[2], a[1] * x + a[0] * y + a[3]];
+function simInverse(a) { const [ar, ai, bx, by] = a, d = ar * ar + ai * ai; const ir = ar / d, ii = -ai / d; return [ir, ii, -(ir * bx - ii * by), -(ii * bx + ir * by)]; }
+/** CAD 도면에서 찍은 점: 가까운 선의 교점·끝점에 붙임 (tol = 도면 좌표 반경) */
+function snapDXFPoint(src, wx, wy, tol) {
+  if (!src || src.kind === 'raster' || !src.prims) return null;
+  let end = null, endD = tol, cross = null, crossD = tol;
+  const near = [];
+  for (const pr of src.prims) {
+    if (pr.k !== 'p') continue; const p = pr.pts, n = p.length; if (n < 4) continue;
+    for (let i = 0; i < n; i += 2) { const e = Math.hypot(p[i] - wx, p[i + 1] - wy); if (e < endD) { endD = e; end = [p[i], p[i + 1]]; } }   // 끝점·꺾인 점
+    const segs = pr.closed ? n / 2 : n / 2 - 1;
+    for (let k = 0; k < segs && near.length < 300; k++) {
+      const i = 2 * k, x1 = p[i], y1 = p[i + 1], x2 = p[(i + 2) % n], y2 = p[(i + 3) % n];
+      if (segDist(wx, wy, x1, y1, x2, y2) < tol) near.push([x1, y1, x2, y2]);
+    }
+  }
+  for (let i = 0; i < near.length; i++) for (let j = i + 1; j < near.length; j++) {   // 가까운 선끼리 교점 (기둥 중심선·통심선 교차)
+    const [ax, ay, bx2, by2] = near[i], [cx, cy, dx, dy] = near[j];
+    const rx = bx2 - ax, ry = by2 - ay, sx = dx - cx, sy = dy - cy, den = rx * sy - ry * sx;
+    if (Math.abs(den) <= 1e-9 * Math.hypot(rx, ry) * Math.hypot(sx, sy)) continue;   // 나란한 선
+    const t = ((cx - ax) * sy - (cy - ay) * sx) / den, u = ((cx - ax) * ry - (cy - ay) * rx) / den;
+    if (t < -0.02 || t > 1.02 || u < -0.02 || u > 1.02) continue;
+    const ix = ax + t * rx, iy = ay + t * ry, e = Math.hypot(ix - wx, iy - wy);
+    if (e < crossD) { crossD = e; cross = [ix, iy]; }
+  }
+  if (cross && (!end || crossD <= endD + tol * 0.25)) return cross;   // 교점을 끝점보다 조금 더 우선
+  return end;
+}
+/** 도면 한 칸 (확대·이동·점 찍기) */
+function alignPane(title, sheet, src, opt) {
+  const pts = { A: null, B: null }; let active = 'A', view = { s: 1, tx: 0, ty: 0 }, W = 0, H = 0, dpr = 1;
+  const cv = h('canvas', { class: 'al-cv', 'aria-label': title });
+  const chipA = h('button', { type: 'button', class: 'chip sm' }, 'A'), chipB = h('button', { type: 'button', class: 'chip sm' }, 'B');
+  const stat = h('small', { class: 'al-stat' });
+  const P = {
+    pts, el: null, get active() { return active; },
+    fit() { const b = sheetBounds(sheet, src), bw = b.x1 - b.x0 || 1, bh = b.y1 - b.y0 || 1, s = Math.min((W - 24) / bw, (H - 24) / bh); view = { s, tx: (W - bw * s) / 2 - b.x0 * s, ty: (H - bh * s) / 2 - b.y0 * s }; P.draw(); },
+    w2s: (x, y) => [x * view.s + view.tx, y * view.s + view.ty], s2w: (x, y) => [(x - view.tx) / view.s, (y - view.ty) / view.s],
+    draw() {
+      if (!W) return; const c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
+      drawSource(c, src, view, W, H, { colorMode: 'dark', minText: 3 });
+      drawOverlay(c, sheet, view, W, H, { fade: !!opt.fade });
+      // 조사위치(지금 도면) / 옮겨질 자리 미리보기(새 도면)
+      const marks = opt.marks ? opt.marks() : [];
+      c.font = `700 11px ${UI_FONT}`; c.textAlign = 'center'; c.textBaseline = 'middle';
+      for (const [x, y, no] of marks) { const [sx, sy] = P.w2s(x, y); if (sx < -20 || sy < -20 || sx > W + 20 || sy > H + 20) continue; c.beginPath(); c.arc(sx, sy, 9, 0, Math.PI * 2); c.fillStyle = 'rgba(255,255,255,.9)'; c.fill(); c.lineWidth = 2; c.strokeStyle = opt.markColor || '#d1342f'; c.stroke(); c.fillStyle = opt.markColor || '#d1342f'; c.fillText(String(no), sx, sy + 0.5); }
+      for (const k of ['A', 'B']) {
+        if (!pts[k]) continue; const [sx, sy] = P.w2s(...pts[k]), col = k === 'A' ? '#1d6fd1' : '#e07b00';
+        c.strokeStyle = '#fff'; c.lineWidth = 5; c.beginPath(); c.moveTo(sx - 16, sy); c.lineTo(sx + 16, sy); c.moveTo(sx, sy - 16); c.lineTo(sx, sy + 16); c.stroke();
+        c.strokeStyle = col; c.lineWidth = 2; c.beginPath(); c.moveTo(sx - 16, sy); c.lineTo(sx + 16, sy); c.moveTo(sx, sy - 16); c.lineTo(sx, sy + 16); c.stroke();
+        c.beginPath(); c.arc(sx, sy, 6, 0, Math.PI * 2); c.stroke();
+        c.fillStyle = col; c.beginPath(); c.arc(sx + 16, sy - 16, 10, 0, Math.PI * 2); c.fill(); c.fillStyle = '#fff'; c.font = `700 12px ${UI_FONT}`; c.fillText(k, sx + 16, sy - 15.5);
+      }
+      chipA.classList.toggle('on', active === 'A'); chipB.classList.toggle('on', active === 'B');
+      chipA.textContent = pts.A ? 'A ✓' : 'A'; chipB.textContent = pts.B ? 'B ✓' : 'B';
+      stat.textContent = !pts.A ? `${active}를 찍으세요` : !pts.B ? 'B를 찍으세요' : '두 점 완료 · 다시 찍으려면 A/B를 고르고 찍기';
+    },
+    resize() { const r = cv.getBoundingClientRect(); dpr = Math.min(2, window.devicePixelRatio || 1); const first = !W; W = Math.max(50, r.width); H = Math.max(50, r.height); cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr); if (first) P.fit(); else P.draw(); },
+  };
+  chipA.onclick = () => { active = 'A'; P.draw(); }; chipB.onclick = () => { active = 'B'; P.draw(); };
+  const place = (sx, sy) => {
+    let w = P.s2w(sx, sy);
+    const sn = snapDXFPoint(src, w[0], w[1], 14 / view.s); if (sn) w = sn;   // CAD는 교점·끝점에 붙임
+    pts[active] = w; if (active === 'A' && !pts.B) active = 'B'; else if (active === 'B' && !pts.A) active = 'A';
+    P.draw(); opt.onChange();
+  };
+  // 확대·이동: 휠 / 두 손가락 · 끌기 = 이동 · 톡 = 점 찍기
+  const ptrs = new Map(); let g = null;
+  const xy = e => { const r = cv.getBoundingClientRect(); return [e.clientX - r.left, e.clientY - r.top]; };
+  cv.addEventListener('pointerdown', e => {
+    try { cv.setPointerCapture(e.pointerId); } catch (er) { /* */ }
+    ptrs.set(e.pointerId, xy(e));
+    if (ptrs.size === 1) { const [x, y] = xy(e); g = { kind: 'tap', x0: x, y0: y, tx0: view.tx, ty0: view.ty }; }
+    else if (ptrs.size === 2) { const [a, b] = [...ptrs.values()]; const cx = (a[0] + b[0]) / 2, cy = (a[1] + b[1]) / 2; g = { kind: 'pinch', d0: Math.hypot(a[0] - b[0], a[1] - b[1]) || 1, s0: view.s, w0: P.s2w(cx, cy) }; }
+    e.preventDefault();
+  });
+  cv.addEventListener('pointermove', e => {
+    if (!ptrs.has(e.pointerId) || !g) return; ptrs.set(e.pointerId, xy(e));
+    if (g.kind === 'pinch' && ptrs.size >= 2) { const [a, b] = [...ptrs.values()]; const cx = (a[0] + b[0]) / 2, cy = (a[1] + b[1]) / 2, s = clamp(g.s0 * Math.hypot(a[0] - b[0], a[1] - b[1]) / g.d0, 1e-6, 1e6); view = { s, tx: cx - g.w0[0] * s, ty: cy - g.w0[1] * s }; P.draw(); return; }
+    const [x, y] = xy(e);
+    if (g.kind === 'tap' && Math.hypot(x - g.x0, y - g.y0) > 6) g.kind = 'pan';
+    if (g.kind === 'pan') { view.tx = g.tx0 + x - g.x0; view.ty = g.ty0 + y - g.y0; P.draw(); }
+  });
+  const up = e => {
+    if (!ptrs.has(e.pointerId)) return;
+    const wasTap = g && g.kind === 'tap' && ptrs.size === 1 && e.type === 'pointerup';
+    ptrs.delete(e.pointerId);
+    if (wasTap) place(g.x0, g.y0);
+    if (!ptrs.size) g = null;
+    else if (g && g.kind === 'pinch') { const [p] = [...ptrs.values()]; g = { kind: 'pan', x0: p[0], y0: p[1], tx0: view.tx, ty0: view.ty }; }
+  };
+  cv.addEventListener('pointerup', up); cv.addEventListener('pointercancel', up);
+  cv.addEventListener('wheel', e => { e.preventDefault(); const [x, y] = xy(e), w = P.s2w(x, y), s = clamp(view.s * Math.exp(-e.deltaY * 0.0016), 1e-6, 1e6); view = { s, tx: x - w[0] * s, ty: y - w[1] * s }; P.draw(); }, { passive: false });
+  P.el = h('div', { class: 'al-pane' },
+    h('div', { class: 'al-head' }, h('b', null, title), h('span', { class: 'spacer' }), chipA, chipB, h('button', { type: 'button', class: 'btn small', onclick: () => P.fit() }, '전체')),
+    h('div', { class: 'al-wrap' }, cv), stat);
+  return P;
+}
+/** 기준점 맞추기 → { a } (옮기는 식) / null(취소) */
+function alignDialog(sheet, oldSrc, cand, newSrc) {
+  return new Promise(res => {
+    let a = null;
+    const kindName = s => ({ pdf: 'PDF', image: '이미지', dxf: 'CAD' })[s.src.kind] || '';
+    const oldMarks = () => [...sheet.markers.map(m => [m.tx != null ? m.tx : m.x, m.tx != null ? m.ty : m.y, m.no]), ...(sheet.ap || []).map(x => [x.tx != null ? x.tx : x.x, x.tx != null ? x.ty : x.y, x.no])];
+    const info = h('div', { class: 'al-info' });
+    const okBtn = h('button', { type: 'button', class: 'btn pri', disabled: true }, '교체하기');
+    const update = () => {
+      a = (L.pts.A && L.pts.B && R.pts.A && R.pts.B) ? similarityFrom(L.pts.A, L.pts.B, R.pts.A, R.pts.B) : null;
+      okBtn.disabled = !a; R.draw();
+      if (!a) { info.textContent = '두 도면에서 같은 곳 두 군데를 A·B 순서로 찍으세요 (예: X1-Y1, X4-Y4 기둥 중심·교점). 서로 멀리 떨어진 곳일수록 정확합니다.'; info.classList.remove('warn'); return; }
+      const sc = Math.hypot(a[0], a[1]), rot = Math.atan2(a[1], a[0]) * 180 / Math.PI;
+      const bo = sheetBounds(sheet, oldSrc), dOld = Math.hypot(L.pts.B[0] - L.pts.A[0], L.pts.B[1] - L.pts.A[1]) / Math.hypot(bo.x1 - bo.x0, bo.y1 - bo.y0);
+      const warns = [dOld < 0.15 ? 'A와 B가 너무 가깝습니다 – 멀리 떨어진 두 곳을 찍으면 더 정확합니다' : '', Math.abs(rot) > 15 ? `회전이 ${rot.toFixed(0)}°입니다 – A·B를 서로 바꿔 찍지 않았는지 확인하세요` : ''].filter(Boolean);
+      info.textContent = `오른쪽 빨간 번호가 옮겨질 자리입니다 (회전 ${rot.toFixed(1)}° · 축척 ×${sc.toPrecision(4)}). ` + (warns.length ? warns.join(' / ') : '자리가 맞으면 ‘교체하기’를 누르세요.');
+      info.classList.toggle('warn', warns.length > 0);
+    };
+    const L = alignPane(`지금 도면 (${kindName(sheet)})`, sheet, oldSrc, { marks: oldMarks, onChange: () => update() });
+    const R = alignPane(`새 도면 (${kindName(cand)})`, cand, newSrc, { marks: () => (a ? oldMarks().map(([x, y, no]) => [...simApply(a, x, y), no]) : []), onChange: () => update(), markColor: '#d1342f' });
+    const back = h('div', { class: 'dlg-back al-back' });
+    const close = v => { ro.disconnect(); window.removeEventListener('keydown', onKey, true); back.remove(); res(v); };
+    const onKey = e => { if (e.key === 'Escape') { e.stopPropagation(); close(null); } };
+    okBtn.onclick = () => { if (a) close({ a }); };
+    const box = h('div', { class: 'dlg al-dlg', role: 'dialog', 'aria-modal': 'true' },
+      h('h2', null, `‘${sheet.name}’ 도면 교체 – 기준점 맞추기`),
+      h('div', { class: 'al-panes' }, L.el, R.el),
+      info,
+      h('div', { class: 'dlg-btns' }, h('small', { class: 'hint', style: { marginRight: 'auto' } }, '확대: 두 손가락·마우스 휠 · 이동: 끌기 · CAD 도면은 선 교점에 자동으로 붙습니다'),
+        h('button', { type: 'button', class: 'btn', onclick: () => close(null) }, '취소'), okBtn));
+    box.__al = { L, R };   // 시험용
+    back.append(box); $('#dlg-root').append(back);
+    window.addEventListener('keydown', onKey, true);
+    const ro = new ResizeObserver(() => { L.resize(); R.resize(); }); ro.observe(L.el); ro.observe(R.el);
+    update();
+  });
+}
+/* --- 옮기기 / 되돌리기 --- */
+/** 도면에 그린 모든 것의 좌표를 f로 옮김 (조사위치·외관조사·조적벽·펜 메모·글자·도형) */
+function xformSheetItems(s, f) {
+  const r2 = v => Math.round(v * 100) / 100;
+  const F = (x, y) => { const [a, b] = f(x, y); return [r2(a), r2(b)]; };
+  const pt = o => { [o.x, o.y] = F(o.x, o.y); if (o.tx != null && o.ty != null) [o.tx, o.ty] = F(o.tx, o.ty); };
+  const poly = p => { for (let i = 0; i + 1 < p.length; i += 2) [p[i], p[i + 1]] = F(p[i], p[i + 1]); };
+  for (const m of s.markers) pt(m);
+  for (const x of s.ap || []) pt(x);
+  for (const t of s.texts || []) [t.x, t.y] = F(t.x, t.y);
+  for (const st of s.strokes || []) poly(st.pts);
+  for (const w of s.walls || []) poly(w.pts);
+  for (const g of s.shapes || []) {   // 도형은 네 모서리를 옮긴 상자 (회전이 있으면 감싸는 상자)
+    const c = [[g.x0, g.y0], [g.x1, g.y0], [g.x1, g.y1], [g.x0, g.y1]].map(([x, y]) => F(x, y)), xs = c.map(q => q[0]), ys = c.map(q => q[1]);
+    g.x0 = Math.min(...xs); g.x1 = Math.max(...xs); g.y0 = Math.min(...ys); g.y1 = Math.max(...ys);
+  }
+}
+const xformBox = (b, f) => { if (!b) return null; const c = [[b.x0, b.y0], [b.x1, b.y0], [b.x1, b.y1], [b.x0, b.y1]].map(([x, y]) => f(x, y)), xs = c.map(q => q[0]), ys = c.map(q => q[1]); return { x0: Math.min(...xs), y0: Math.min(...ys), x1: Math.max(...xs), y1: Math.max(...ys) }; };
+/** 보정(기준점 두 곳 실제 좌표)은 그림 도면끼리 바꿀 때만 기준점을 같이 옮겨 유지 */
+function xformCalib(calib, f, newKind) {
+  if (!calib || newKind === 'dxf' || calib.type !== 'pts') return null;
+  const c = JSON.parse(JSON.stringify(calib)); [c.a.wx, c.a.wy] = f(c.a.wx, c.a.wy); [c.b.wx, c.b.wy] = f(c.b.wx, c.b.wy); return c;
+}
+function afterSheetSourceChange(s, msg) {
+  V.views.delete(s.id); touch(); fillSheetSelect(); updatePeekBtn();
+  makeSheetThumb(s).then(() => { touch(); if (S.view === 'sheets') renderSheets(); }).catch(() => { });
+  if (S.view === 'sheets') renderSheets();
+  showView('survey'); openSheet(s.id);
+  toast(msg, { ms: 6500 });
+}
+function applyReplace(s, cand, a) {
+  const f = (x, y) => simApply(a, x, y);
+  s.replaced = { at: Date.now(), src: s.src, clip: s.clip || null, clipHard: !!s.clipHard, calib: s.calib || null, a };
+  xformSheetItems(s, f);
+  const calib = xformCalib(s.calib, f, cand.src.kind);
+  s.clip = cand.clip ? { ...cand.clip } : xformBox(s.clip, f); s.clipHard = !!cand.clip;
+  s.calib = calib; s.src = cand.src;
+  clearUndo();
+  afterSheetSourceChange(s, '도면을 바꾸고 조사위치를 옮겼습니다. 어긋난 위치는 선택·이동으로 조정하세요 (펜으로 꾹 누르면 번호와 화살표가 함께 움직임)');
+}
+async function revertReplace(s) {
+  const r = s.replaced; if (!r || lockGuard()) return;
+  if (!await confirmDlg('이전 도면으로 되돌리기', `‘${s.name}’을 바꾸기 전 도면으로 되돌립니다. 교체한 뒤 옮기거나 새로 찍은 위치도 이전 도면 자리로 함께 옮겨집니다.`, '되돌리기')) return;
+  const inv = simInverse(r.a), f = (x, y) => simApply(inv, x, y);
+  xformSheetItems(s, f);
+  s.src = r.src; s.clip = r.clip; s.clipHard = r.clipHard; s.calib = r.calib;
+  delete s.replaced;
+  clearUndo();
+  afterSheetSourceChange(s, '바꾸기 전 도면으로 되돌렸습니다');
+}
+
 /* ================= 일람표(참고용 도면) 빠르게 보기 =================
  * 평면도 작업 중 도면 자리에 일람표를 잠깐 띄웠다가 바로 돌아오기.
  * 평면도 화면(확대·위치·선택)과 상세창은 그대로 두고, 위에 겹쳐서만 보여 줌. */
@@ -5724,10 +6042,14 @@ const PEEK_ICON = '<svg viewBox="0 0 24 24" width="20" height="20" fill="none" s
 /** 버튼에 쓸 짧은 이름: '보 배근일람표' → '보 일람표' */
 function refLabel(s) { return (s.name || '').replace(/\s*배근\s*/g, ' ').replace(/\s+/g, ' ').trim() || s.name; }
 /** 도면 왼쪽 위: 일람표(참고용 도면)마다 버튼 하나씩 → 누르면 그 일람표가 바로 뜸 */
+const MASON_ICON = '<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="1.5"/><path d="M3 9.7h18M3 14.3h18M9 5v4.7M15 5v4.7M6 9.7v4.6M12 9.7v4.6M18 9.7v4.6M9 14.3V19M15 14.3V19"/></svg>';
 function updatePeekBtn() {
   const box = $('#refBtns'); if (!box) return;
   const refs = V.sheet ? refSheets().filter(s => s !== V.sheet) : [];
-  box.innerHTML = ''; box.hidden = !refs.length || PK.open || V.mode === 'ap';
+  box.innerHTML = ''; box.hidden = !V.sheet || !S.proj || PK.open || V.mode === 'ap';
+  // 조적조 상태 (천장 마감재를 뜯고 부재 조사할 때 같이 적음) – 지금 층에 적은 게 있으면 ✓
+  const mf = S.proj && V.sheet && S.proj.ap && S.proj.ap.masonry.floors[V.sheet.id], mDone = !!(mf && (mf.unit || mf.joint || (mf.photos || []).length || (mf.shots || []).length));
+  box.append(h('button', { type: 'button', class: 'ref-btn mason-btn' + (mDone ? ' done' : ''), title: '이 층의 조적 개체·줄눈·사춤 상태와 사진', html: MASON_ICON, onclick: () => openMasonry() }, h('span', null, mDone ? '조적조 상태 ✓' : '조적조 상태')));
   for (const s of refs) box.append(h('button', { type: 'button', class: 'ref-btn', title: `${s.name} 보기`, html: PEEK_ICON, onclick: () => openPeek(s.id) }, h('span', null, refLabel(s))));
 }
 function buildPeek() {
