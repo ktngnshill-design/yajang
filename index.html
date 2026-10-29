@@ -239,6 +239,8 @@ select.in.disp { min-height: 44px; width: auto; max-width: 260px; }
 .pn-title small { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .pn-body { flex: 1; overflow-y: auto; padding: 12px 14px 20px; display: flex; flex-direction: column; gap: 16px; overscroll-behavior: contain; }
 .pn-sec { display: flex; flex-direction: column; gap: 8px; }
+.pn-ents { display: flex; flex-direction: column; gap: 16px; }
+.pn-ents:empty { display: none; }
 .pn-sec > h3 { display: flex; align-items: center; gap: 8px; }
 .pn-sec > h3 .pill { font-weight: 400; }
 .pn-foot { padding: 10px 12px; border-top: 1px solid var(--line); display: flex; gap: 8px; }
@@ -345,6 +347,8 @@ input.in.hm-memo { margin-left: 106px; width: calc(100% - 106px - 42px); }
 .pk-find .btn { border-color: #f0b35c; color: #8a4b00; background: #fff7ec; }
 .pk-find small { color: var(--muted); white-space: nowrap; }
 .pk-back { flex: none; min-height: 42px; }
+.pk-marks { flex: none; white-space: nowrap; }
+.pk-marks[hidden] { display: none; }
 .pk-stage { position: relative; flex: 1; min-height: 0; }
 .pk-cv { position: absolute; inset: 0; width: 100%; height: 100%; touch-action: none; }
 /* 4 외관조사 */
@@ -359,6 +363,8 @@ input.in.hm-memo { margin-left: 106px; width: calc(100% - 106px - 42px); }
 .ap-ic { display: grid; place-items: center; }
 .ap-seg.thick button { padding: 0 11px; font-variant-numeric: tabular-nums; }
 .ap-seg.thick i { width: 22px; height: 6px; border-radius: 2px; display: inline-block; }
+.ap-seg.rc { align-items: center; gap: 6px; padding: 0 10px; min-height: 46px; color: var(--navy-ink); font-size: 14.5px; white-space: nowrap; }
+.ap-seg.rc input.rc-t { width: 68px; min-height: 34px; padding: 2px 8px; text-align: right; font-size: 15px; font-variant-numeric: tabular-nums; }
 .ap-ck { display: flex; align-items: center; gap: 6px; min-height: 46px; padding: 0 14px; border: 1px solid var(--line); border-radius: 12px; background: #fff; color: var(--navy-ink); font-size: 14.5px; cursor: pointer; box-shadow: 0 2px 8px rgba(20,35,60,.16); white-space: nowrap; }
 .ap-ck:active, .ap-seg button:active { background: var(--tint); }
 .pn-no.sq { border-radius: 9px; }
@@ -747,7 +753,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
 </script>
 
 <script>
-const APP_VERSION = '2026.10.27-1439';
+const APP_VERSION = '2026.10.29-1105';
 const APP_EDITION = 'field';
 'use strict';
 /* ================= 기본 유틸 ================= */
@@ -1009,9 +1015,17 @@ const AP_DEFECTS = ['수직균열', '수평균열', '사선균열', '망상균�
 const AP_HEAVY = ['실외기', '물탱크', '피뢰탑', '국기게양대', '안테나', '태양광 패널', '광고판', '발전기', '수변전설비', '옥탑 구조물', '기타'];
 const AP_WALL = { '0.5B': '#2f8a57', '1.0B': '#d1342f', '1.5B': '#2c6cc4' };   // 조적채움벽 (두께별)
 const AP_WALL_H = { '0.5B': '#8cc63f', '1.0B': '#f08c00', '1.5B': '#3bb3e6' };   // 조적허리벽 (두께별, 채움벽과 다른 계열)
-const WALL_PARTS = ['채움벽', '허리벽'];
-/** 조적벽 선 색: 종류(채움벽·허리벽) × 두께 */
-const wallCol = (part, thick) => { const T = part === '허리벽' ? AP_WALL_H : AP_WALL; return T[thick] || T['1.0B']; };
+const AP_WALL_RC = '#9a6324';   // RC 허리벽 (갈색 한 가지 · 두께는 mm 숫자로 입력)
+const WALL_PARTS = ['채움벽', '허리벽', 'RC허리벽'];
+const isRcWall = part => part === 'RC허리벽';
+/** 벽 선 색: 조적은 종류(채움벽·허리벽) × 두께, RC 허리벽은 한 가지 */
+const wallCol = (part, thick) => { if (isRcWall(part)) return AP_WALL_RC; const T = part === '허리벽' ? AP_WALL_H : AP_WALL; return T[thick] || T['1.0B']; };
+/** 벽 종류 이름: 조적채움벽 · 조적허리벽 · RC허리벽 */
+const wallKindName = part => (isRcWall(part) ? 'RC허리벽' : '조적' + (part || '채움벽'));
+/** 두께 글자: 조적 = 0.5B·1.0B·1.5B, RC 허리벽 = 150mm (없으면 빈칸) */
+const wallThickText = (part, thick) => (isRcWall(part) ? (/\d/.test(thick || '') ? `${thick}mm` : '') : (thick || ''));
+/** 벽 이름: 조적채움벽 1.0B · RC허리벽 150mm */
+const wallLabel = w => [wallKindName(w.part), wallThickText(w.part, w.thick)].filter(Boolean).join(' ');
 const AP_STATE = ['양호', '보통', '불량'];
 const AP_NONST = ['매달린 천장', '무거운 조명기구', '대피경로상의 비상계단', '대피경로상의 캐노피', '위험물질저장설비', '비상유도등', '가스관', '소화배관 및 스프링클러', '재난대피시설 기능의 유지를 위한 비구조요소'];
 const AP_FINISH = {
@@ -1020,9 +1034,9 @@ const AP_FINISH = {
   '치장벽체': { base: ['고정철물', '시멘트몰탈'], fin: ['화강석물갈기', '치장벽돌', '금속패널'] },
 };
 const isCrackType = t => /균열/.test(t || '');
-function normSheetAp(s) { s.ap = s.ap || []; s.walls = s.walls || []; for (const a of s.ap) normApItem(a); for (const w of s.walls) { w.kind = 'wall'; w.thick = w.thick || '1.0B'; w.part = w.part === '허리벽' ? '허리벽' : '채움벽'; w.h = w.h || ''; w.memo = w.memo || ''; w.photos = w.photos || []; w.shots = w.shots || []; } return s; }
-/** 조적벽 이름 (도면 안 순서): 조적벽 3 (1.0B) */
-const wallName = (s, w) => `조적${w.part || '채움벽'} ${(s.walls || []).indexOf(w) + 1} (${w.thick})`;
+function normSheetAp(s) { s.ap = s.ap || []; s.walls = s.walls || []; for (const a of s.ap) normApItem(a); for (const w of s.walls) { w.kind = 'wall'; w.part = WALL_PARTS.includes(w.part) ? w.part : '채움벽'; w.thick = isRcWall(w.part) ? String(w.thick == null ? '' : w.thick) : (w.thick || '1.0B'); w.h = w.h || ''; w.memo = w.memo || ''; w.photos = w.photos || []; w.shots = w.shots || []; } return s; }
+/** 벽 이름 (도면 안 순서): 조적채움벽 3 (1.0B) · RC허리벽 4 (150mm) */
+const wallName = (s, w) => { const t = wallThickText(w.part, w.thick); return `${wallKindName(w.part)} ${(s.walls || []).indexOf(w) + 1}${t ? ` (${t})` : ''}`; };
 function normApItem(a) {
   a.kind = a.kind === 'heavy' ? 'heavy' : 'defect';
   for (const k of ['member', 'defect', 'note', 'w', 'len', 'cnt', 'area', 'heavy', 'spec', 'memo']) a[k] = a[k] == null ? '' : a[k];
@@ -2457,7 +2471,7 @@ function drawApMarkups(c, sheet, view, o) {
 const V = {
   stage: null, bg: null, hi: null, fg: null, bgx: null, hix: null, fgx: null, W: 0, H: 0, dpr: 1,
   sheet: null, src: null, view: { s: 1, tx: 0, ty: 0 }, bgView: null, hiView: null, hiTask: null, hiTimer: 0,
-  tool: 'arrow', sel: null, disp: 'field', numMap: null, mode: 'member', apKind: lsGet('apKind') || 'defect', wallThick: lsGet('wallThick') || '1.0B', wallPart: lsGet('wallPart') === '허리벽' ? '허리벽' : '채움벽', wallSnap: lsGet('wallSnap') !== '0', dispMember: 'field',
+  tool: 'arrow', sel: null, disp: 'field', numMap: null, mode: 'member', apKind: lsGet('apKind') || 'defect', wallThick: lsGet('wallThick') || '1.0B', wallPart: WALL_PARTS.includes(lsGet('wallPart')) ? lsGet('wallPart') : '채움벽', rcThick: (lsGet('rcThick') || '').replace(/\D/g, ''), wallSnap: lsGet('wallSnap') !== '0', dispMember: 'field',
   opts: { fade: false, colorMode: 'mono', finger: false, labels: true, size: 1, penColor: '#d1342f', markStyle: 'arrow', shapeKind: 'rect', shapeHatch: true },
   pointers: new Map(), gesture: null, drawPid: null, drawType: null, down: null, drag: null, stroke: null,
   lastPen: 0, gestureActive: false, raf: 0, bgDirty: true, panelM: null, calib: null, views: new Map(), wake: null,
@@ -3035,7 +3049,7 @@ function eraseAt(pt) {
   const g = hitShape(pt, true); if (g) { push(); V.sheet.shapes = shapesOf(V.sheet).filter(x => x !== g); if (V.sel && V.sel.id === g.id) V.sel = null; requestRender(false); }
 }
 async function askErase(o) {
-  const name = isWall(o) ? `조적${o.part || '채움벽'}(${o.thick})` : isApItem(o) ? `${AP_KINDS[o.kind].short} ${o.no}번` : `${o.no}번 위치(${markerTitle(o)})`;
+  const name = isWall(o) ? wallLabel(o) : isApItem(o) ? `${AP_KINDS[o.kind].short} ${o.no}번` : `${o.no}번 위치(${markerTitle(o)})`;
   if (!await confirmDlg('지우기', `${name}에 입력한 내용이 있습니다. 지울까요?`, '지우기', true)) return;
   if (!sheetHas(V.sheet, o)) return;
   pushUndo(); if (isWall(o)) removeWall(o); else removeMarker(o, true);
@@ -3081,7 +3095,7 @@ function undoLosses(u) {
   const d = JSON.parse(u.data), keep = new Set([...d.m, ...(d.a || []), ...(d.w || [])].map(o => o.id)), out = [];
   for (const m of sh.markers) if (!keep.has(m.id) && itemHasData(m)) out.push(`${m.no}번 위치(${markerTitle(m)})`);
   for (const a of sh.ap || []) if (!keep.has(a.id) && itemHasData(a)) out.push(`${AP_KINDS[a.kind].short} ${a.no}번`);
-  for (const w of sh.walls || []) if (!keep.has(w.id) && itemHasData(w)) out.push(`조적${w.part || '채움벽'}(${w.thick})`);
+  for (const w of sh.walls || []) if (!keep.has(w.id) && itemHasData(w)) out.push(wallLabel(w));
   return out;
 }
 function restoreSnap(u) {
@@ -4215,7 +4229,9 @@ function renderPanel() {
   const dimFields = m.type === '보' ? [['b', '폭 b'], ['ts', '슬래브 두께'], ['hb', '슬래브 하단~보 하단'], ['h', '전체 춤 h']]
     : m.type === '원형기둥' ? [['d', '지름 D']]
     : thin ? [['t', '두께 t']] : m.type === '기타' || !m.type ? [['b', '폭 b'], ['h', '춤·깊이 h'], ['t', '두께 t']] : [['b', '폭 b'], ['h', m.type === '기초' ? '깊이 D' : '깊이 h']];
-  const sec = h('div', { class: 'pn-sec' }, h('h3', null, '치수·배근', h('small', null, '판과 같이 바뀝니다 (mm)')), h('div', { class: 'summary', id: 'pnSum' }));
+  // 치수 → 사진(대부분 치수·규격 사진) → 배근 → 철근탐사·반발경도 순서
+  const sec = h('div', { class: 'pn-sec' }, h('h3', null, '치수', h('small', null, '판과 같이 바뀝니다 (mm)')), h('div', { class: 'summary', id: 'pnSum' }));
+  const barSec = h('div', { class: 'pn-sec' }, h('h3', null, '배근', h('small', null, '판과 같이 바뀝니다')));
   /** 보 I·M·J 표: 열 = [키, 이름], 행 = 위치 */
   const imjTable = (cols, keyOf, lbOf) => h('div', { class: 'imj', style: { gridTemplateColumns: `26px repeat(${cols.length}, minmax(0, 1fr))` } },
     h('span'), ...cols.map(([, lb]) => h('span', { class: 'imj-h' }, lb)),
@@ -4231,26 +4247,28 @@ function renderPanel() {
   if (spec) {
     const grid = h('div', { class: 'grid2' });
     for (const [k, lb, kind, opts] of spec) {
-      if (kind === 'opt') sec.append(h('div', { class: 'f' }, h('span', null, lb), h('div', { class: 'chips' }, opts.map(o => h('button', { type: 'button', class: 'chip sm' + (m.rebar[k] === o ? ' on' : ''), onclick: e => { m.rebar[k] = m.rebar[k] === o ? '' : o; $$('button', e.target.parentNode).forEach(b => b.classList.toggle('on', m.rebar[k] === b.textContent)); after(); } }, o)))));
+      if (kind === 'opt') barSec.append(h('div', { class: 'f' }, h('span', null, lb), h('div', { class: 'chips' }, opts.map(o => h('button', { type: 'button', class: 'chip sm' + (m.rebar[k] === o ? ' on' : ''), onclick: e => { m.rebar[k] = m.rebar[k] === o ? '' : o; $$('button', e.target.parentNode).forEach(b => b.classList.toggle('on', m.rebar[k] === b.textContent)); after(); } }, o)))));
       else grid.append(field(k, lb, kind));
     }
-    sec.append(grid);
+    if (grid.childNodes.length) barSec.append(grid);
   }
   // 보 하부근·늑근: I·M·J 표 (넣은 위치만 철근탐사 줄이 생김)
-  if (m.type === '보') sec.append(imjTable([['nbm', '하부 1단 개수'], ['nb2', '하부 2단 개수'], ['ss', '늑근 간격 @']], (k, P) => (k === 'ss' ? SS_KEY[P] : bkey(k, P)),
+  if (m.type === '보') barSec.append(imjTable([['nbm', '하부 1단 개수'], ['nb2', '하부 2단 개수'], ['ss', '늑근 간격 @']], (k, P) => (k === 'ss' ? SS_KEY[P] : bkey(k, P)),
     (lb, P) => (lb.startsWith('늑근') ? `늑근 ${P} 간격 @` : `하부근 ${P} ${lb.replace('하부 ', '')}`)));
-  body.append(sec); sync();
-
-  // 5~7. 번호 기록
-  const ents = h('div', { style: { display: 'flex', flexDirection: 'column', gap: '16px' } });
-  const refreshEntries = () => { ents.innerHTML = ''; ents.append(entrySection(m, 'scan', '철근탐사', 'scans', true), entrySection(m, 'hammer', '반발경도(슈미트)', 'hammers', false), entrySection(m, 'photo', '사진', 'photos', false)); npRebind(); };
-  refreshEntries(); body.append(ents);
+  // 5~7. 번호 기록: 사진은 치수 바로 아래, 철근탐사·반발경도는 배근 아래
+  const phBox = h('div', { class: 'pn-ents' }), ents = h('div', { class: 'pn-ents' });
+  const refreshEntries = () => { phBox.innerHTML = ''; phBox.append(entrySection(m, 'photo', '사진', 'photos', false)); ents.innerHTML = ''; ents.append(entrySection(m, 'scan', '철근탐사', 'scans', true), entrySection(m, 'hammer', '반발경도(슈미트)', 'hammers', false)); npRebind(); };
+  body.append(sec, phBox);
+  // (사진번호 없이 찍었던 예전 태블릿 사진 → 사진 바로 아래)
+  const looseAt = h('div', { class: 'pn-ents' }); body.append(looseAt);
+  if (barSec.childNodes.length > 1) body.append(barSec);
+  sync(); refreshEntries(); body.append(ents);
   V.panelRefresh = () => { board.draw(); board.sync && board.sync(); panelChanged(); sync(); refreshEntries(); };
 
   // 사진번호 없이 찍었던 태블릿 사진 (예전 기록) → 번호 붙이기
   const loose = looseShots(m), shotBox = h('div', { class: 'files' });
   for (const s of loose) { const img = h('img', { alt: '촬영 사진', onclick: () => openImage(s.key, { title: '태블릿 촬영', onDelete: () => { m.shots = m.shots.filter(x => x !== s); panelChanged(true); } }) }); blobURL(s.th || s.key).then(u => { if (u) img.src = u; }); shotBox.append(img); }
-  if (loose.length) body.append(h('div', { class: 'pn-sec' }, h('h3', null, '사진번호 없는 촬영', h('span', { class: 'pill' }, loose.length)),
+  if (loose.length) looseAt.append(h('div', { class: 'pn-sec' }, h('h3', null, '사진번호 없는 촬영', h('span', { class: 'pill' }, loose.length)),
     h('div', { class: 'row' }, h('button', { class: 'btn', type: 'button', onclick: () => { const ns = numberShots(m, loose); panelChanged(true); toast(`사진번호 ${fmtNos(ns)}를 붙였습니다`); } }, '사진번호 붙이기')), shotBox));
 
   // 8. 기타
@@ -4368,7 +4386,7 @@ function entrySection(m, kind, title, key, hasTarget) {
   const files = kind === 'hammer' ? null : S.proj.files.filter(f => f.kind === kind);
   sec.append(h('h3', null, title, h('span', { class: 'pill' }, m[key].length), h('span', { class: 'spacer' }),
     h('small', null, `다음 ${pre}${nextNum(kind)}`)));
-  if (kind === 'scan' && !m[key].length && SCAN_TGT[m.type]) sec.append(h('small', { class: 'ent-hint' }, '그리기 판이나 치수·배근 칸에 철근(개수·간격·단)을 넣으면 대상마다 줄이 자동으로 생기고 결과도 채워집니다'));
+  if (kind === 'scan' && !m[key].length && SCAN_TGT[m.type]) sec.append(h('small', { class: 'ent-hint' }, '그리기 판이나 배근 칸에 철근(개수·간격·단)을 넣으면 대상마다 줄이 자동으로 생기고 결과도 채워집니다'));
   m[key].forEach((e, i) => {
     const nIn = npField(h('input', { class: 'in', value: e.n, 'aria-label': `${title} 번호` }), { key: `${kind}:${npIdOf(e)}`, label: `${title.replace(/\(.*\)/, '')} 번호 ${pre}` });
     nIn.addEventListener('input', () => { e.n = nIn.value; touch(); updateCounter(); requestRender(false); });
@@ -4518,15 +4536,20 @@ function syncApBar() {
   for (const [k, lb, ic] of AP_BAR_KINDS) {
     const col = k === 'wall' ? wallCol(V.wallPart, V.wallThick) : AP_KINDS[k].color;
     const n = k === 'wall' ? (V.sheet?.walls || []).length : (V.sheet?.ap || []).filter(a => a.kind === k).length;
-    kinds.append(h('button', { type: 'button', class: V.apKind === k ? 'on' : '', 'aria-pressed': String(V.apKind === k), onclick: () => setApKind(k), title: k === 'wall' ? '조적벽(채움벽·허리벽)을 벽을 따라 선으로' : `${lb} 위치 표시` },
+    kinds.append(h('button', { type: 'button', class: V.apKind === k ? 'on' : '', 'aria-pressed': String(V.apKind === k), onclick: () => setApKind(k), title: k === 'wall' ? '조적벽(채움벽·허리벽)·RC 허리벽을 벽을 따라 선으로' : `${lb} 위치 표시` },
       h('span', { class: 'ap-ic', style: { color: col }, html: `<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ic}</svg>` }), h('span', null, lb), n ? h('b', null, n) : null));
   }
   box.append(kinds);
-  // 조적벽: 종류(채움벽·허리벽) + 두께 → 선 색 6가지
-  if (V.apKind === 'wall') box.append(h('div', { class: 'ap-seg thick part', role: 'group', 'aria-label': '조적벽 종류' }, WALL_PARTS.map(pt =>
+  // 조적벽: 종류(채움벽·허리벽) + 두께 → 선 색 6가지 / RC 허리벽: 갈색 한 가지 + 두께(mm) 직접 입력
+  if (V.apKind === 'wall') box.append(h('div', { class: 'ap-seg thick part', role: 'group', 'aria-label': '벽 종류' }, WALL_PARTS.map(pt =>
     h('button', { type: 'button', class: V.wallPart === pt ? 'on' : '', 'aria-pressed': String(V.wallPart === pt), onclick: () => { V.wallPart = pt; lsSet('wallPart', pt); syncApBar(); } },
       h('i', { style: { background: wallCol(pt, V.wallThick) } }), pt))));
-  if (V.apKind === 'wall') box.append(h('div', { class: 'ap-seg thick', role: 'group', 'aria-label': '조적벽 두께' }, Object.keys(AP_WALL).map(t =>
+  if (V.apKind === 'wall' && isRcWall(V.wallPart)) {
+    const inp = h('input', { class: 'in rc-t', type: 'text', inputmode: 'numeric', autocomplete: 'off', value: V.rcThick, placeholder: '예: 150', 'aria-label': 'RC 허리벽 두께 (mm)' });
+    inp.addEventListener('input', () => { const v = inp.value.replace(/\D/g, '').slice(0, 4); if (v !== inp.value) inp.value = v; V.rcThick = v; lsSet('rcThick', v); });
+    inp.addEventListener('keydown', e => { if (e.key === 'Enter') inp.blur(); });
+    box.append(h('label', { class: 'ap-seg thick rc', title: '새로 긋는 RC 허리벽의 두께 (그은 뒤에도 상세창에서 고칠 수 있음)' }, h('i', { style: { background: AP_WALL_RC } }), h('span', null, '두께'), inp, h('span', null, 'mm')));
+  } else if (V.apKind === 'wall') box.append(h('div', { class: 'ap-seg thick', role: 'group', 'aria-label': '조적벽 두께' }, Object.keys(AP_WALL).map(t =>
     h('button', { type: 'button', class: V.wallThick === t ? 'on' : '', 'aria-pressed': String(V.wallThick === t), onclick: () => { V.wallThick = t; lsSet('wallThick', t); syncApBar(); } },
       h('i', { style: { background: wallCol(V.wallPart, t) } }), t))));
   // 조적벽 선: 수평·수직·45° 보정 / 보정 없이 그은 방향 그대로
@@ -4578,7 +4601,7 @@ function finishWall(pts) {
     requestRender(false); return;
   }
   pushUndo();
-  const w = { id: uid(), kind: 'wall', pts: [g.a.w[0], g.a.w[1], g.b.w[0], g.b.w[1]], thick: V.wallThick, part: V.wallPart, h: '', memo: '', photos: [], shots: [], created: Date.now() };
+  const w = { id: uid(), kind: 'wall', pts: [g.a.w[0], g.a.w[1], g.b.w[0], g.b.w[1]], thick: isRcWall(V.wallPart) ? V.rcThick : V.wallThick, part: V.wallPart, h: '', memo: '', photos: [], shots: [], created: Date.now() };
   V.sheet.walls.push(w); touchSheet(); syncApBar();
   if (V.panelM && isWall(V.panelM)) { V.sel = { type: 'w', id: w.id }; openPanel(w); } else V.sel = null;
 }
@@ -4587,7 +4610,7 @@ function removeWall(w) {
   if (V.panelM === w) closePanel();
   if (V.sel && V.sel.id === w.id) V.sel = null;
   touchSheet(); syncApBar();
-  toast(`조적${w.part}(${w.thick})을 지웠습니다`, { action: undoToastAction(), label: '되돌리기' });
+  toast(`${wallLabel(w)}을(를) 지웠습니다`, { action: undoToastAction(), label: '되돌리기' });
 }
 function removeApItem(a, withToast) {
   const sh = V.sheet; sh.ap = sh.ap.filter(x => x !== a);
@@ -4729,14 +4752,26 @@ function renderWallPanel(P, w, keep) {
   const len = fmtLen(wallLenMM(sh, w.pts));
   P.append(h('div', { class: 'pn-head' },
     h('div', { class: 'pn-no wall', style: { borderColor: col, color: col } }, h('i', { style: { background: col } })),
-    h('div', { class: 'pn-title' }, h('h2', null, `조적${w.part} ${w.thick}`), h('small', null, `${sh.name} · ${idx + 1}/${list.length}${len ? ' · 길이 ' + len : ''}`)),
+    h('div', { class: 'pn-title' }, h('h2', null, wallLabel(w)), h('small', null, `${sh.name} · ${idx + 1}/${list.length}${len ? ' · 길이 ' + len : ''}`)),
     h('button', { class: 'btn small', type: 'button', onclick: () => go(-1), 'aria-label': '이전' }, '◀'),
     h('button', { class: 'btn small', type: 'button', onclick: () => go(1), 'aria-label': '다음' }, '▶'),
     h('button', { class: 'btn small', type: 'button', onclick: closePanel, 'aria-label': '닫기' }, '닫기')));
   const body = h('div', { class: 'pn-body' }), npSlot = h('div', { class: 'np-slot' }); P.append(body, npSlot); V.panelBoard = null;
-  body.append(h('div', { class: 'pn-sec' }, h('h3', null, '종류', h('small', null, '채움벽: 1.0B 빨강 · 0.5B 초록 · 1.5B 파랑 / 허리벽: 1.0B 주황 · 0.5B 연두 · 1.5B 하늘')),
-    segRow(WALL_PARTS, w.part, pt => { if (w.part === pt) return; pushUndo(); w.part = pt; V.wallPart = pt; lsSet('wallPart', pt); touchSheet(); syncApBar(); renderPanel(); })),
-    h('div', { class: 'pn-sec' }, h('h3', null, '두께'),
+  // 종류를 바꾸면 두께도 그 종류에 맞게 (조적 ↔ RC: B 단위 ↔ mm)
+  const setPart = pt => {
+    if (w.part === pt) return; pushUndo();
+    if (isRcWall(pt) !== isRcWall(w.part)) w.thick = isRcWall(pt) ? V.rcThick : (AP_WALL[V.wallThick] ? V.wallThick : '1.0B');
+    w.part = pt; V.wallPart = pt; lsSet('wallPart', pt); touchSheet(); syncApBar(); renderPanel();
+  };
+  body.append(h('div', { class: 'pn-sec' }, h('h3', null, '종류'),
+    segRow(WALL_PARTS, w.part, setPart),
+    h('small', { class: 'hint' }, '채움벽: 1.0B 빨강 · 0.5B 초록 · 1.5B 파랑 / 허리벽: 1.0B 주황 · 0.5B 연두 · 1.5B 하늘 / RC허리벽: 갈색 (두께 mm 입력)')));
+  if (isRcWall(w.part)) {
+    // RC 허리벽 두께: 숫자패드로 mm 입력
+    const tIn = npField(h('input', { class: 'in', value: w.thick, placeholder: '예: 150', 'aria-label': 'RC 허리벽 두께 (mm)' }), { key: 'wall:t', label: '두께 (mm)' });
+    tIn.addEventListener('input', () => { const v = tIn.value.replace(/\D/g, '').slice(0, 4); if (v !== tIn.value) tIn.value = v; w.thick = v; V.rcThick = v; lsSet('rcThick', v); touch(); syncApBar(); const t2 = P.querySelector('.pn-title h2'); if (t2) t2.textContent = wallLabel(w); requestRender(false); });
+    body.append(h('div', { class: 'pn-sec' }, h('h3', null, '두께', h('small', null, 'mm')), tIn));
+  } else body.append(h('div', { class: 'pn-sec' }, h('h3', null, '두께'),
     segRow(Object.keys(AP_WALL), w.thick, t => { if (w.thick === t) return; pushUndo(); w.thick = t; V.wallThick = t; lsSet('wallThick', t); touchSheet(); syncApBar(); renderPanel(); })));
   // 높이 H: 숫자패드로 (태블릿 글자판 안 뜨게)
   // 높이 H: 오른쪽 아래 숫자패드로 (‘-’, ‘보춤’ 버튼 포함 · 천 단위 쉼표 자동)
@@ -4769,7 +4804,7 @@ let CK_TAB = 'finish';
 function surveySheets(p = S.proj) { return p.sheets.filter(s => !isRefSheet(s)); }
 function wallStats(s) {
   const by = {}; for (const w of s.walls || []) { const k = `${w.part || '채움벽'} ${w.thick}`; const b = by[k] || (by[k] = { n: 0, mm: 0, ok: true, part: w.part || '채움벽', t: w.thick }); b.n++; const L = wallLenMM(s, w.pts); if (L == null) b.ok = false; else b.mm += L; }
-  return Object.values(by).sort((a, b) => WALL_PARTS.indexOf(a.part) - WALL_PARTS.indexOf(b.part) || parseFloat(b.t) - parseFloat(a.t)).map(b => `${b.part} ${b.t} ${b.n}개${b.ok && b.mm ? ` (${fmtLen(b.mm)})` : ''}`).join(', ');
+  return Object.values(by).sort((a, b) => WALL_PARTS.indexOf(a.part) - WALL_PARTS.indexOf(b.part) || (parseFloat(b.t) || 0) - (parseFloat(a.t) || 0)).map(b => `${[b.part, wallThickText(b.part, b.t)].filter(Boolean).join(' ')} ${b.n}개${b.ok && b.mm ? ` (${fmtLen(b.mm)})` : ''}`).join(', ');
 }
 async function openChecklist(tab) {
   if (!S.proj) return;
@@ -6154,7 +6189,7 @@ async function replaceBatchFlow() {
 const REF_RE = /일람표|리스트|LIST|SCHEDULE/i;
 function isRefSheet(s) { return s.ref != null ? !!s.ref : REF_RE.test(s.name || ''); }
 function refSheets() { return S.proj ? S.proj.sheets.filter(isRefSheet) : []; }
-const PK = { big: lsGet('peekBig') === '1', bigBtn: null, open: false, el: null, cv: null, c: null, tabs: null, find: null, sheet: null, src: null, view: { s: 1, tx: 0, ty: 0 }, fitS: 1, views: new Map(), W: 0, H: 0, dpr: 1, pts: new Map(), g: null, hits: [], hitI: -1, mark: '', raf: 0, lastId: null, lastTap: 0 };
+const PK = { big: lsGet('peekBig') === '1', bigBtn: null, marks: lsGet('peekMarks') !== '0', markBtn: null, open: false, el: null, cv: null, c: null, tabs: null, find: null, sheet: null, src: null, view: { s: 1, tx: 0, ty: 0 }, fitS: 1, views: new Map(), W: 0, H: 0, dpr: 1, pts: new Map(), g: null, hits: [], hitI: -1, mark: '', raf: 0, lastId: null, lastTap: 0 };
 const PEEK_ICON = '<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><rect x="3.5" y="4.5" width="17" height="15" rx="1.5"/><path d="M3.5 9.5h17M9 9.5v10M14.5 9.5v10"/></svg>';
 
 /** 버튼에 쓸 짧은 이름: '보 배근일람표' → '보 일람표' */
@@ -6176,6 +6211,8 @@ function buildPeek() {
   PK.find = h('div', { class: 'pk-find' });
   const back = h('button', { class: 'btn pri pk-back', type: 'button', onclick: closePeek }, '돌아가기 ✕');
   PK.bigBtn = h('button', { class: 'btn small', type: 'button', onclick: () => { PK.big = !PK.big; lsSet('peekBig', PK.big ? '1' : ''); placePeek(); }, title: '상세창 자리까지 덮어서 크게 보기' });
+  // 그 참고 도면에 적어 둔 펜 메모·글자·도형·조사위치 보기/숨기기
+  PK.markBtn = h('button', { class: 'btn small pk-marks', type: 'button', onclick: () => { PK.marks = !PK.marks; lsSet('peekMarks', PK.marks ? '1' : '0'); syncPeekMarkBtn(); peekDraw(); }, title: '이 도면에 적어 둔 메모·위치 표시 보기/숨기기' });
   PK.cv = h('canvas', { class: 'pk-cv', 'aria-label': '참고 도면 보기' });
   PK.c = PK.cv.getContext('2d');
   const zoom = h('div', { class: 'zoom' },
@@ -6184,7 +6221,7 @@ function buildPeek() {
     h('button', { type: 'button', 'aria-label': '전체 보기', title: '전체 보기', style: { fontSize: '13px' }, onclick: () => { peekFit(); peekDraw(); peekSaveView(); } }, '맞춤'));
   PK.el = h('div', { class: 'peek', hidden: true },
     h('div', { class: 'pk-bar' },
-      h('div', { class: 'pk-row' }, h('span', { class: 'pk-ttl', html: PEEK_ICON }), PK.find, h('span', { class: 'spacer' }), PK.bigBtn, back),
+      h('div', { class: 'pk-row' }, h('span', { class: 'pk-ttl', html: PEEK_ICON }), PK.find, h('span', { class: 'spacer' }), PK.markBtn, PK.bigBtn, back),
       PK.tabs),
     h('div', { class: 'pk-stage' }, PK.cv, zoom));
   placePeek();
@@ -6245,6 +6282,13 @@ function peekFit() {
   if (!PK.src) return; const b = sheetBounds(PK.sheet, PK.src), s = peekFitScale(); PK.fitS = s;
   PK.view = { s, tx: (PK.W - (b.x1 - b.x0) * s) / 2 - b.x0 * s, ty: (PK.H - (b.y1 - b.y0) * s) / 2 - b.y0 * s };
 }
+/** 참고 도면에 적어 둔 것이 있는지 (펜 메모·글자·도형·조사위치) */
+function peekHasMarks(s) { return !!(s && ((s.markers || []).length || (s.strokes || []).length || (s.texts || []).length || (s.shapes || []).length)); }
+function syncPeekMarkBtn() {
+  if (!PK.markBtn) return;
+  PK.markBtn.hidden = !peekHasMarks(PK.sheet);
+  PK.markBtn.textContent = PK.marks ? '메모 숨기기' : '메모 보기'; PK.markBtn.setAttribute('aria-pressed', String(PK.marks));
+}
 function peekDraw() { if (PK.raf) return; PK.raf = requestAnimationFrame(() => { PK.raf = 0; peekRender(); }); }
 function peekRender() {
   if (!PK.open) return;
@@ -6252,6 +6296,8 @@ function peekRender() {
   if (!PK.src) { c.fillStyle = '#e3e8ef'; c.fillRect(0, 0, W, H); c.fillStyle = '#3c4c66'; c.font = `15px ${UI_FONT}`; c.textAlign = 'center'; c.fillText('도면을 여는 중…', W / 2, H / 2); return; }
   drawSource(c, PK.src, PK.view, W, H, { colorMode: V.opts.colorMode, minText: 2.4 });
   drawOverlay(c, PK.sheet, PK.view, W, H, {});
+  // 그 도면에 적어 둔 펜 메모·글자·도형·조사위치(번호·화살표)도 같이 – 평면도 화면과 같은 모양, 보기만
+  if (PK.marks && peekHasMarks(PK.sheet)) { const R = markerRW(PK.sheet, PK.src) * PK.view.s; drawMarkups(c, PK.sheet, PK.view, { R, lw: Math.max(0.6, R * 0.1), penW: Math.max(0.8, R * 0.13), disp: 'field', sel: null, labels: V.opts.labels, badges: true, tags: 'm', prefixOf }); }
   // 지금 상세창 부재 부호(예: G1) 위치 표시
   const { s, tx, ty } = PK.view;
   PK.hits.forEach((hh, i) => {
@@ -6315,7 +6361,7 @@ async function openPeek(id) {
   if (PK.open) await showRef(target, true);
 }
 async function showRef(s, auto) {
-  PK.sheet = s; PK.lastId = s.id; PK.src = null; PK.hits = []; PK.hitI = -1; renderPeekTabs(); renderPeekFind(); peekDraw();
+  PK.sheet = s; PK.lastId = s.id; PK.src = null; PK.hits = []; PK.hitI = -1; renderPeekTabs(); renderPeekFind(); syncPeekMarkBtn(); peekDraw();
   let src; try { src = await loadSource(s); } catch (e) { toast('도면을 열지 못했습니다: ' + e.message); return; }
   if (PK.sheet !== s || !PK.open) return;
   PK.src = src; peekResize(); PK.fitS = peekFitScale();
