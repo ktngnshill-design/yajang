@@ -772,7 +772,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
 </script>
 
 <script>
-const APP_VERSION = '2026.11.10-1717';
+const APP_VERSION = '2026.11.10-2118';
 const APP_EDITION = 'field';
 'use strict';
 /* ================= 기본 유틸 ================= */
@@ -1570,10 +1570,13 @@ function dxfText(s) {
   s = s.replace(/%%[cC]/g, 'Ø').replace(/%%[dD]/g, '°').replace(/%%[pP]/g, '±').replace(/%%[uUoOkK]/g, '').replace(/%%%/g, '%').replace(/%%(\d{3})/g, (_, n) => String.fromCharCode(+n));
   return s;
 }
+/** DXF 글자 안의 제어문자 표기(^J = 줄바꿈 · Shift+Enter, ^I = 탭, ^M = CR, '^ ' = ^ 글자) */
+const caretDecode = s => s.replace(/\^([JIM ])/g, (_, c) => (c === 'J' ? '\n' : c === 'I' ? ' ' : c === ' ' ? '^' : ''));
 function mtextPlain(s) {
   s = dxfText(s);
   s = s.replace(/\\P/g, '\n').replace(/\\~/g, ' ');
   s = s.replace(/\\S([^;]*?)[\^/#]([^;]*?);/g, '$1/$2');
+  s = caretDecode(s);   // CAD에서 Shift+Enter로 바꾼 줄 (^J) → 줄바꿈 (\S 겹친 글자를 푼 다음에)
   s = s.replace(/\\[ACFHQTWfhcqtwap][^;\\]*;/g, '').replace(/\\[LlOoKkNX]/g, '');
   s = s.replace(/\\\\/g, '\u0001').replace(/[{}]/g, '').replace(/\u0001/g, '\\');
   return s;
@@ -1719,8 +1722,9 @@ function flattenDXF(d) {
     if (flip) x = -x;
     const p = ap(M, x, y); const sc = Math.sqrt(Math.abs(M[0] * M[3] - M[1] * M[2])) || 1;
     const rot = gf(r, 50, 0) + Math.atan2(M[1], M[0]) * 180 / Math.PI;
-    const t = { x: p[0], y: -p[1], h: gf(r, 40, 2.5) * sc, rot, lines: [dxfText(raw)], ha: clamp(ha, 0, 2), va: clamp(va, 0, 3), wf: gf(r, 41, 1) || 1, rgb: st.rgb, layer: st.layer, aci: st.aci, mt: false };
-    t.lines = t.lines.map(own); t.ext = t.h * Math.max(2, t.lines[0].length) * 1.2;
+    const lines = caretDecode(dxfText(raw)).split('\n').filter((l, i, a) => l.trim() || (i > 0 && i < a.length - 1));   // Shift+Enter 줄바꿈(^J)이면 여러 줄
+    const t = { x: p[0], y: -p[1], h: gf(r, 40, 2.5) * sc, rot, lines: lines.length ? lines : [''], ha: clamp(ha, 0, 2), va: clamp(va, 0, 3), wf: gf(r, 41, 1) || 1, rgb: st.rgb, layer: st.layer, aci: st.aci, mt: false };
+    t.lines = t.lines.map(own); t.ext = t.h * Math.max(2, ...t.lines.map(l => l.length)) * 1.2 + t.h * (t.lines.length - 1) * 1.7;
     texts.push(t); prims.push({ k: 't', t }); sample(t.x, t.y);
   }
   function addMText(r, M, flip, st) {
@@ -2258,7 +2262,7 @@ function drawDXF(c, src, view, W, H, opts) {
       const lh = hh * 1.67, tot = hh + (t.lines.length - 1) * lh; const top = t.vrow === 0 ? 0 : t.vrow === 1 ? -tot / 2 : -tot;
       t.lines.forEach((ln, i) => c.fillText(ln, 0, top + hh + i * lh));
     } else {
-      const off = [0, -0.22 * hh, 0.5 * hh, hh][t.va] || 0; c.fillText(t.lines[0], 0, off);
+      t.lines.forEach((ln, i) => c.fillText(ln, 0, textLineOff(t, hh, i)));
     }
   }
   c.restore();
@@ -2521,6 +2525,15 @@ function drawApMarkups(c, sheet, view, o) {
   c.restore();
 }
 
+/** 한 줄 글자(TEXT)의 i번째 줄 기준선 위치 (아래 +). 한 줄이면 예전과 같고, 여러 줄(^J)이면 맞춤(va)에 따라 덩어리째:
+ *  0 기준선 = 첫 줄이 기준점, 1 아래 = 마지막 줄 아래가 기준점, 2 가운데 = 덩어리 가운데, 3 위 = 첫 줄 위가 기준점 */
+function textLineOff(t, hh, i) {
+  const n = t.lines.length, lh = hh * 1.67;
+  if (t.va === 1) return -0.22 * hh - (n - 1 - i) * lh;
+  if (t.va === 2) return -(hh + (n - 1) * lh) / 2 + hh + i * lh;
+  if (t.va === 3) return hh + i * lh;
+  return i * lh;
+}
 /* ================= 뷰어 상태 ================= */
 const V = {
   stage: null, bg: null, hi: null, fg: null, bgx: null, hix: null, fgx: null, W: 0, H: 0, dpr: 1,
