@@ -772,7 +772,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
 </script>
 
 <script>
-const APP_VERSION = '2026.11.10-1700';
+const APP_VERSION = '2026.11.10-1703';
 const APP_EDITION = 'field';
 'use strict';
 /* ================= 기본 유틸 ================= */
@@ -2491,8 +2491,9 @@ function drawWalls(c, sheet, view, o) {
   }
   c.restore();
 }
-/** 조적벽 높이 글씨: H=3,300-보춤 (높이를 안 적었으면 없음) */
-const wallHText = w => (w.h ? `H=${String(w.h).trim()}` : '');
+/** 조적벽 높이 글씨: H=3,300-보춤 (높이를 안 적었으면 없음). 네 자리 이상 숫자는 천 단위 쉼표 (3300 → 3,300) */
+const fmtThousands = t => String(t).replace(/(^|[^\d.])(\d{4,})/g, (_, a, n) => a + Number(n).toLocaleString('en-US'));
+const wallHText = w => { const t = String(w.h || '').trim().replace(/(\d),(?=\d{3}\b)/g, '$1'); return t ? `H=${fmtThousands(t)}` : ''; };
 function apLabelLines(a) {
   if (a.kind === 'heavy') return [apTitle(a)].filter(Boolean);
   return [[a.member, apDefectText(a)].filter(Boolean).join(' '), apSize(a)].filter(Boolean);
