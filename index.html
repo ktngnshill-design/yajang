@@ -239,6 +239,13 @@ select.in.disp { min-height: 44px; width: auto; max-width: 260px; }
 .pn-title small { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .pn-body { flex: 1; overflow-y: auto; padding: 12px 14px 20px; display: flex; flex-direction: column; gap: 16px; overscroll-behavior: contain; }
 .pn-sec { display: flex; flex-direction: column; gap: 8px; }
+.pn-no.wall.multi { background: #fff4e3; border-color: #f08a00; color: #b76200; font-weight: 700; }
+.wm-list { display: flex; flex-direction: column; gap: 4px; max-height: 40vh; overflow: auto; }
+.wm-row { display: flex; align-items: center; gap: 10px; padding: 4px 6px; border: 1px solid var(--line); border-radius: 8px; }
+.wm-row i { width: 22px; height: 6px; border-radius: 2px; flex: none; }
+.wm-row span:nth-of-type(1) { flex: 1; }
+.wm-row .wm-h { color: var(--muted); font-variant-numeric: tabular-nums; }
+.memo-in { padding-left: 30px; display: flex; flex-direction: column; gap: 6px; }
 .pn-ents { display: flex; flex-direction: column; gap: 16px; }
 .pn-ents:empty { display: none; }
 .pn-sec > h3 { display: flex; align-items: center; gap: 8px; }
@@ -364,6 +371,11 @@ input.in.hm-memo { margin-left: 106px; width: calc(100% - 106px - 42px); }
 .ap-seg.thick button { padding: 0 11px; font-variant-numeric: tabular-nums; }
 .ap-seg.thick i { width: 22px; height: 6px; border-radius: 2px; display: inline-block; }
 .ap-seg.rc { align-items: center; gap: 6px; padding: 0 10px; min-height: 46px; color: var(--navy-ink); font-size: 14.5px; white-space: nowrap; }
+.ap-seg.alpha { align-items: center; gap: 8px; padding: 0 12px; min-height: 46px; color: var(--navy-ink); font-size: 14.5px; white-space: nowrap; }
+.ap-seg.alpha input[type=range], .mi-range input[type=range] { width: 120px; accent-color: var(--navy, #27497b); touch-action: none; }
+.ap-seg.alpha b, .mi-range b { min-width: 38px; text-align: right; font-variant-numeric: tabular-nums; font-weight: 600; }
+.menu .mi.mi-range { display: flex; align-items: center; gap: 10px; padding: 8px 12px; font-size: 14.5px; }
+.mi.mi-range span { flex: 1; }
 .ap-seg.rc input.rc-t { width: 68px; min-height: 34px; padding: 2px 8px; text-align: right; font-size: 15px; font-variant-numeric: tabular-nums; }
 .ap-ck { display: flex; align-items: center; gap: 6px; min-height: 46px; padding: 0 14px; border: 1px solid var(--line); border-radius: 12px; background: #fff; color: var(--navy-ink); font-size: 14.5px; cursor: pointer; box-shadow: 0 2px 8px rgba(20,35,60,.16); white-space: nowrap; }
 .ap-ck:active, .ap-seg button:active { background: var(--tint); }
@@ -406,11 +418,18 @@ input.in.hm-memo { margin-left: 106px; width: calc(100% - 106px - 42px); }
 .cp-b { display: flex; align-items: center; gap: 4px; min-height: 40px; padding: 0 10px; border: 1.5px solid var(--line); background: #fff; border-radius: 8px; font-size: 13.5px; color: var(--navy-ink); cursor: pointer; white-space: nowrap; }
 .cp-b.on { background: var(--navy); border-color: var(--navy); color: #fff; }
 .cp-b:disabled { opacity: .45; cursor: default; }
+.cp-sw:disabled, .cp-tpls .chip:disabled { opacity: .35; cursor: default; }
 .cp-sws { display: flex; gap: 5px; padding: 0 2px; }
 .cp-sw { width: 30px; height: 30px; border-radius: 50%; border: 2px solid #fff; box-shadow: 0 0 0 1px var(--line); cursor: pointer; padding: 0; }
 .cp-sw.on { box-shadow: 0 0 0 3px var(--navy); }
 .cp-wrap { border: 1px solid var(--line); border-radius: 8px; overflow: hidden; background: #fff; }
 .cp-cv { display: block; width: 100%; aspect-ratio: 4 / 3; touch-action: none; background: #fff; }
+.cp-wrap { position: relative; }
+.cp-wrap.locked .cp-cv { touch-action: pan-y; }
+.cp-lockmark { display: none; position: absolute; top: 6px; right: 6px; align-items: center; gap: 4px; padding: 3px 8px; border-radius: 999px; background: rgba(36,66,111,.88); color: #fff; font-size: 12.5px; pointer-events: none; }
+.cp-lockmark svg { width: 14px; height: 14px; }
+.cp-wrap.locked .cp-lockmark { display: inline-flex; }
+.cp-b.lock.on { background: var(--navy); color: #fff; border-color: var(--navy); }
 .cp-big { position: fixed; inset: 0; z-index: 95; background: #eef2f7; display: flex; flex-direction: column; gap: 8px; padding: 10px 14px 14px; }
 .cp-big .cp-head { display: flex; align-items: center; gap: 12px; min-width: 0; }
 .cp-big .cp-head > b { white-space: nowrap; color: var(--navy-ink); font-size: 16px; }
@@ -753,7 +772,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
 </script>
 
 <script>
-const APP_VERSION = '2026.10.29-1105';
+const APP_VERSION = '2026.11.10-1557';
 const APP_EDITION = 'field';
 'use strict';
 /* ================= 기본 유틸 ================= */
@@ -1034,6 +1053,14 @@ const AP_FINISH = {
   '치장벽체': { base: ['고정철물', '시멘트몰탈'], fin: ['화강석물갈기', '치장벽돌', '금속패널'] },
 };
 const isCrackType = t => /균열/.test(t || '');
+/** 결함 유형은 여러 개 고를 수 있음: a.defect = '수평균열, 백태' (AP_DEFECTS 순서로 저장 · 예전 한 개짜리도 그대로) */
+const defectTypes = a => String((a && a.defect) || '').split(/\s*,\s*/).filter(Boolean);
+function toggleDefectType(a, v) {
+  const cur = new Set(defectTypes(a)); if (cur.has(v)) cur.delete(v); else cur.add(v);
+  a.defect = [...AP_DEFECTS.filter(d => cur.has(d)), ...[...cur].filter(d => !AP_DEFECTS.includes(d))].join(', ');
+}
+/** 파일 이름용: 수평균열+백태 */
+const defectFileName = a => defectTypes(a).join('+');
 function normSheetAp(s) { s.ap = s.ap || []; s.walls = s.walls || []; for (const a of s.ap) normApItem(a); for (const w of s.walls) { w.kind = 'wall'; w.part = WALL_PARTS.includes(w.part) ? w.part : '채움벽'; w.thick = isRcWall(w.part) ? String(w.thick == null ? '' : w.thick) : (w.thick || '1.0B'); w.h = w.h || ''; w.memo = w.memo || ''; w.photos = w.photos || []; w.shots = w.shots || []; } return s; }
 /** 벽 이름 (도면 안 순서): 조적채움벽 3 (1.0B) · RC허리벽 4 (150mm) */
 const wallName = (s, w) => { const t = wallThickText(w.part, w.thick); return `${wallKindName(w.part)} ${(s.walls || []).indexOf(w) + 1}${t ? ` (${t})` : ''}`; };
@@ -2263,7 +2290,10 @@ function drawMarkups(c, sheet, view, o) {
   c.save(); c.lineCap = 'round'; c.lineJoin = 'round';
   if (o.memo !== false) {
     if (o.disp === 'field') drawMemos(c, sheet, view, o);
-    else for (const g of shapesFor(sheet, 'm', o.disp)) drawShape(c, g, view, o, !!(o.sel && o.sel.type === 'g' && o.sel.id === g.id));   // 항목별 위치도: 그 항목 도형만
+    else {
+      for (const g of shapesFor(sheet, 'm', o.disp)) drawShape(c, g, view, o, !!(o.sel && o.sel.type === 'g' && o.sel.id === g.id));   // 항목별 위치도: 그 항목 도형만
+      if (o.notes === true) drawNotes(c, sheet, view, o);   // 내보내기에서 이 위치도에 메모를 넣기로 한 경우만
+    }
   }
   const list = o.disp === 'field' ? sheet.markers : sheet.markers.filter(m => m.items[o.disp]);
   const lw = o.lw;
@@ -2290,10 +2320,14 @@ function drawMarkups(c, sheet, view, o) {
   }
   c.restore();
 }
-/** 펜 메모·글자 (현장번호 위치도·화면) */
+/** 도형 + 펜 메모·글자 (현장번호 위치도·화면). o.notes === false 이면 펜 메모·글자는 빼고 도형만 (내보내기 기본) */
 function drawMemos(c, sheet, view, o) {
-  const { s, tx, ty } = view; const X = x => x * s + tx, Y = y => y * s + ty; const R = o.R, red = '#d1342f';
   for (const g of sheet.shapes || []) if (shapeIn(g, o.shapes || 'm')) drawShape(c, g, view, o, !!(o.sel && o.sel.type === 'g' && o.sel.id === g.id));
+  if (o.notes !== false) drawNotes(c, sheet, view, o);
+}
+/** 펜 메모·글자 */
+function drawNotes(c, sheet, view, o) {
+  const { s, tx, ty } = view; const X = x => x * s + tx, Y = y => y * s + ty; const R = o.R, red = '#d1342f';
   {
     for (const st of sheet.strokes) {
       const p = st.pts; if (p.length < 4) continue;
@@ -2423,21 +2457,24 @@ function drawSideLabel(c, cx, cy, R, lines, left) {
   let lx = cx + R + R * 0.35, ly = cy - (lines.length - 1) * R * 0.5;
   if (left) { lx = cx - R - R * 0.35; c.textAlign = 'right'; } else c.textAlign = 'left';
   c.font = `${(R * 0.78).toFixed(1)}px ${UI_FONT}`; c.textBaseline = 'middle'; c.lineWidth = R * 0.28; c.strokeStyle = '#fff';
-  for (const ln of lines) { c.strokeText(ln, lx, ly); c.fillStyle = '#1d3a66'; c.fillText(ln, lx, ly); ly += R * 1.0; }
+  for (const ln of lines) { c.strokeText(ln, lx, ly); c.fillStyle = '#d1342f'; c.fillText(ln, lx, ly); ly += R * 1.0; }   // 빨간 글씨 (도면 선과 구분)
 }
 function drawTipHandle(c, px, py) { c.fillStyle = '#fff'; c.strokeStyle = '#f08a00'; c.lineWidth = 2.5; c.beginPath(); c.arc(px, py, 9, 0, Math.PI * 2); c.fill(); c.stroke(); }
 
 /* ================= 외관조사 그리기 (화면·내보내기 공용) =================
  * o.only: 'defect' | 'heavy' | 'wall' (내보내기 위치도별) / 없으면 전부 (화면) */
 const wallWidth = R => Math.max(3, R * 0.42);
+/** 화면에서 조적벽 선 진하기 (0.1~1). 기본 0.65 = 투명도 35% – 밑의 도면이 비쳐 보이게. 내보내기는 항상 진하게 */
+const wallAlpha = () => { const a = Number(V.opts.wallAlpha); return a >= 0.1 && a <= 1 ? a : 0.65; };
 function drawWalls(c, sheet, view, o) {
   const { s, tx, ty } = view; const X = x => x * s + tx, Y = y => y * s + ty; const lwW = wallWidth(o.R);
   c.save(); c.lineCap = 'square';
   for (const w of sheet.walls || []) {
-    const p = w.pts; const sel = o.sel && o.sel.type === 'w' && o.sel.id === w.id;
+    const p = w.pts; const multi = !!(o.wsel && o.wsel.has(w.id)), sel = !multi && o.sel && o.sel.type === 'w' && o.sel.id === w.id;
+    if (multi) { c.beginPath(); c.moveTo(X(p[0]), Y(p[1])); c.lineTo(X(p[2]), Y(p[3])); c.strokeStyle = 'rgba(240,138,0,.6)'; c.lineWidth = lwW + 12; c.stroke(); }
     c.beginPath(); c.moveTo(X(p[0]), Y(p[1])); c.lineTo(X(p[2]), Y(p[3]));
     if (sel) { c.strokeStyle = 'rgba(240,138,0,.55)'; c.lineWidth = lwW + 10; c.stroke(); }
-    c.strokeStyle = wallCol(w.part, w.thick); c.globalAlpha = o.screen ? 0.82 : 1; c.lineWidth = lwW; c.stroke(); c.globalAlpha = 1;
+    c.strokeStyle = wallCol(w.part, w.thick); c.globalAlpha = o.screen ? wallAlpha() : 1; c.lineWidth = lwW; c.stroke(); c.globalAlpha = 1;
     if (sel) for (const k of [0, 2]) drawTipHandle(c, X(p[k]), Y(p[k + 1]));
   }
   c.restore();
@@ -2451,7 +2488,7 @@ function drawApMarkups(c, sheet, view, o) {
   if (!(R > 0.3)) return;
   c.save(); c.lineCap = 'round'; c.lineJoin = 'round';
   if (o.memo) drawMemos(c, sheet, view, { ...o, shapes: 'ap' });
-  else if (o.only) for (const g of shapesFor(sheet, 'ap', o.only)) drawShape(c, g, view, o, false);   // 위치도별: 그 항목으로 고른 도형만 (지장물 위치도는 도형만)
+  else if (o.only) { for (const g of shapesFor(sheet, 'ap', o.only)) drawShape(c, g, view, o, false); if (o.notes === true) drawNotes(c, sheet, view, o); }   // 위치도별: 그 항목으로 고른 도형만 (지장물 위치도는 도형만) + 넣기로 한 메모
   if (!o.only || o.only === 'wall') drawWalls(c, sheet, view, o);
   const list = (sheet.ap || []).filter(a => !o.only || a.kind === o.only);
   const lw = o.lw, Rw = R / s, NP = new Map(); for (const a of list) NP.set(a, markerNumXY(a, Rw));
@@ -2581,7 +2618,7 @@ function renderFg() {
   c.setTransform(V.dpr, 0, 0, V.dpr, 0, 0);
   const R = markerR();
   const ap = V.mode === 'ap';
-  if (ap) drawApMarkups(c, V.sheet, V.view, { R, lw: Math.max(0.6, R * 0.1), penW: Math.max(0.8, R * 0.13), sel: V.sel, labels: V.opts.labels, memo: true, screen: true, tags: 'ap' });
+  if (ap) drawApMarkups(c, V.sheet, V.view, { R, lw: Math.max(0.6, R * 0.1), penW: Math.max(0.8, R * 0.13), sel: V.sel, wsel: V.wsel, labels: V.opts.labels, memo: true, screen: true, tags: 'ap' });
   else drawMarkups(c, V.sheet, V.view, { R, lw: Math.max(0.6, R * 0.1), penW: Math.max(0.8, R * 0.13), disp: V.disp, numMap: V.numMap, sel: V.sel, labels: V.opts.labels, badges: true, tags: 'm', prefixOf, prefix: V.disp !== 'field' ? (S.proj.settings.itemPrefix[V.disp] || '') : '' });
   if (V.stroke) {
     const p = V.stroke.pts; c.beginPath(); c.moveTo(p[0].x, p[0].y); for (const q of p) c.lineTo(q.x, q.y);
@@ -2589,12 +2626,12 @@ function renderFg() {
     if (V.stroke.kind === 'pen') { c.strokeStyle = V.opts.penColor; c.lineWidth = Math.max(0.8, R * 0.13); c.stroke(); }
     else if (V.stroke.kind === 'wall') {
       // 조적벽: 처음 점 → 마지막 점 직선 (8방향·끝점 붙이기 미리보기)
-      const g = wallFromStroke(p), col = wallCol(V.wallPart, V.wallThick);
+      const g = wallFromStroke(p), col = wallCol(V.wallPart, V.wallThick), tTxt = isRcWall(V.wallPart) ? (V.rcThick ? V.rcThick + 'mm' : 'RC') : V.wallThick;
       c.strokeStyle = 'rgba(29,58,102,.35)'; c.lineWidth = 1.5; c.setLineDash([5, 4]); c.stroke(); c.setLineDash([]);
       if (g) {
-        c.save(); c.lineCap = 'square'; c.globalAlpha = 0.85; c.beginPath(); c.moveTo(g.a.x, g.a.y); c.lineTo(g.b.x, g.b.y); c.strokeStyle = col; c.lineWidth = wallWidth(R); c.stroke(); c.restore();
+        c.save(); c.lineCap = 'square'; c.globalAlpha = Math.max(0.35, wallAlpha()); c.beginPath(); c.moveTo(g.a.x, g.a.y); c.lineTo(g.b.x, g.b.y); c.strokeStyle = col; c.lineWidth = wallWidth(R); c.stroke(); c.restore();
         for (const q of [g.a, g.b]) { c.beginPath(); c.arc(q.x, q.y, q.snap ? 7 : 4, 0, Math.PI * 2); c.fillStyle = q.snap ? '#f08a00' : '#fff'; c.fill(); c.strokeStyle = col; c.lineWidth = 2; c.stroke(); }
-        if (g.len) { c.font = `700 13px ${UI_FONT}`; c.textAlign = 'center'; c.textBaseline = 'bottom'; c.lineWidth = 4; c.strokeStyle = '#fff'; const mx = (g.a.x + g.b.x) / 2, my = (g.a.y + g.b.y) / 2 - 10; c.strokeText(`${V.wallThick} · ${g.len}`, mx, my); c.fillStyle = col; c.fillText(`${V.wallThick} · ${g.len}`, mx, my); }
+        if (g.len) { c.font = `700 13px ${UI_FONT}`; c.textAlign = 'center'; c.textBaseline = 'bottom'; c.lineWidth = 4; c.strokeStyle = '#fff'; const mx = (g.a.x + g.b.x) / 2, my = (g.a.y + g.b.y) / 2 - 10; c.strokeText(`${tTxt} · ${g.len}`, mx, my); c.fillStyle = col; c.fillText(`${tTxt} · ${g.len}`, mx, my); }
       }
     }
     else {
@@ -2649,6 +2686,7 @@ function endGesture() { clearTimeout(V.gTimer); V.gestureActive = false; V.bgDir
 /* ================= 입력 ================= */
 function evPt(e) { const r = V.fg.getBoundingClientRect(); return { x: e.clientX - r.left, y: e.clientY - r.top }; }
 function onDown(e) {
+  V.mod = !!(e.shiftKey || e.ctrlKey || e.metaKey);   // PC: Shift·Ctrl+클릭 = 조적벽 여러 개 고르기
   if (!V.sheet || !V.src) { dlog('ign', V.sheet ? 'no-src' : 'no-sheet'); return; }
   const pt = evPt(e), type = e.pointerType;
   if (type === 'pen') V.lastPen = performance.now();
@@ -2767,7 +2805,7 @@ function onWheel(e) {
 function tapAt(pt) {
   const m = hitMarker(pt);
   if (m) { V.sel = { type: 'm', id: m.id }; openPanel(m); requestRender(false); return; }
-  const w = hitWall(pt); if (w) { V.sel = { type: 'w', id: w.id }; openPanel(w); requestRender(false); return; }
+  const w = hitWall(pt); if (w) { wallTap(w); return; }
   if (V.tool === 'select') { const g = hitShape(pt); V.sel = g ? { type: 'g', id: g.id } : null; requestRender(false); }
 }
 
@@ -2900,7 +2938,7 @@ function toolUp(pt) {
   if (d) {
     if (d.kind === 'whole') { if (d.wholeMoved) touchSheet(); else requestRender(false); }
     else if (d.kind === 'marker') { if (!moved) { V.sel = { type: 'm', id: d.m.id }; openPanel(d.m); } else touchSheet(); }
-    else if (d.kind === 'tip' || d.kind === 'aim' || d.kind === 'move' || d.kind === 'wend') { if (moved) touchSheet(); else if (d.kind === 'move' && d.o.s != null) editText(d.o); else if (d.kind === 'move' && isWall(d.o)) openPanel(d.o); else if (d.kind === 'wend') openPanel(d.w); }
+    else if (d.kind === 'tip' || d.kind === 'aim' || d.kind === 'move' || d.kind === 'wend') { if (moved) touchSheet(); else if (d.kind === 'move' && d.o.s != null) editText(d.o); else if (d.kind === 'move' && isWall(d.o)) wallTap(d.o); else if (d.kind === 'wend') openPanel(d.w); }
     else if (d.kind === 'pan') { endGesture(); if (d.ro && !moved) tapAt(pt); }
     else if (d.kind === 'erase') { if (d.pushed) touchSheet(); }
     else if (d.kind === 'calib') calibPoint(pt);
@@ -3104,6 +3142,7 @@ function restoreSnap(u) {
   sh.ap = mergeUndoList(sh.ap || [], d.a || [], GEO_KEYS.a);
   sh.walls = mergeUndoList(sh.walls || [], d.w || [], GEO_KEYS.w);
   sh.strokes = d.s; sh.texts = d.t; sh.shapes = d.g || [];
+  if (u.fx) for (const f of u.fx) { const o = findItem(sh, f.id); if (o) for (const [k, v] of Object.entries(f.vals)) o[k] = JSON.parse(JSON.stringify(v)); }
   normSheetAp(sh); return sh;
 }
 /** 상세 입력값이 있는지 (지우기 전에 물어볼지) */
@@ -3119,7 +3158,14 @@ function clearUndo() { UNDO.length = 0; REDO.length = 0; updateUndoBtns(); }
 /** 도면 안에서 id로 조사위치·외관 표시·조적벽 찾기 */
 function findItem(sh, id) { return sh.markers.find(x => x.id === id) || (sh.ap || []).find(x => x.id === id) || (sh.walls || []).find(x => x.id === id) || null; }
 function sheetHas(sh, o) { return !!sh && (sh.markers.includes(o) || (sh.ap || []).includes(o) || (sh.walls || []).includes(o)); }
-function pushUndo() { if (!V.sheet) return; UNDO.push(snap(V.sheet)); if (UNDO.length > 80) UNDO.shift(); REDO.length = 0; updateUndoBtns(); }
+/** 되돌리기 기록. 보통은 위치·모양·목록만 되돌리고 입력값은 지금 것을 둠.
+ *  fx = [{ o, keys }]: 그 항목의 이 입력값도 함께 되돌림 (예: 사진 지우기 → photos·shots) */
+function pushUndo(fx) {
+  if (!V.sheet) return; const u = snap(V.sheet);
+  if (fx && fx.length) u.fx = fx.map(({ o, keys }) => ({ id: o.id, vals: fxVals(o, keys) }));
+  UNDO.push(u); if (UNDO.length > 80) UNDO.shift(); REDO.length = 0; updateUndoBtns();
+}
+const fxVals = (o, keys) => Object.fromEntries(keys.filter(k => k in o).map(k => [k, JSON.parse(JSON.stringify(o[k]))]));
 async function undo() { await undoRedo(UNDO, REDO, '되돌리기'); }
 async function redo() { await undoRedo(REDO, UNDO, '다시 하기'); }
 async function undoRedo(from, to, lb) {
@@ -3130,10 +3176,13 @@ async function undoRedo(from, to, lb) {
   const loss = undoLosses(u);
   if (loss.length && !await confirmDlg(lb, `${lb}를 하면 입력한 내용이 있는 ${loss.slice(0, 4).join(', ')}${loss.length > 4 ? ` 등 ${loss.length}개` : ''}가 지워집니다. 계속할까요?`, lb, true)) return;
   if (from[from.length - 1] !== u) return;
-  from.pop(); to.push(snap(sh)); restoreSnap(u); afterRestore(sh);
+  from.pop();
+  const rev = snap(sh); if (u.fx) rev.fx = u.fx.map(f => { const o = findItem(sh, f.id); return { id: f.id, vals: o ? fxVals(o, Object.keys(f.vals)) : {} }; });   // 다시 하기에도 같은 입력값
+  to.push(rev); restoreSnap(u); afterRestore(sh);
 }
 function afterRestore(sh) {
-  if (V.panelM) { const m = findItem(sh, V.panelM.id); if (m) openPanel(m); else closePanel(); }
+  if (V.panelM === WMULTI) { wselPrune(); if (V.wsel.size > 1) renderPanel(); else if (V.wsel.size === 1) { const w = sh.walls.find(x => V.wsel.has(x.id)); V.wsel.clear(); V.sel = { type: 'w', id: w.id }; openPanel(w); } else closePanel(); }
+  else if (V.panelM) { const m = findItem(sh, V.panelM.id); if (m) openPanel(m); else closePanel(); }
   touchSheet(); updateUndoBtns();
 }
 function updateUndoBtns() { const u = $('#btnUndo'), r = $('#btnRedo'), L = typeof isLocked === 'function' && isLocked(); if (u) u.disabled = L || !UNDO.length; if (r) r.disabled = L || !REDO.length; }
@@ -3231,6 +3280,7 @@ function openMoreMenu(ev) {
     isLocked() ? null : it('이 도면 다른 층으로 복사', null, () => copySheetFlow(V.sheet)),
     h('hr'),
     it('도면 흐리게', o.fade ? '켜짐' : '꺼짐', () => { o.fade = !o.fade; saveOpts(); requestRender(); scheduleHi(); }),
+    V.mode === 'ap' && typeof wallAlphaControl === 'function' ? wallAlphaControl('mi mi-range') : null,
     it('도면 색', { dark: '진하게', mono: '흑백', orig: '원래 색' }[o.colorMode], () => { o.colorMode = { dark: 'mono', mono: 'orig', orig: 'dark' }[o.colorMode]; saveOpts(); requestRender(); }),
     it('부재 라벨 표시', o.labels ? '켜짐' : '꺼짐', () => { o.labels = !o.labels; saveOpts(); requestRender(false); }),
     it('손가락으로도 그리기', o.finger ? '켜짐' : '꺼짐', () => { o.finger = !o.finger; saveOpts(); toast(o.finger ? '손가락 한 개로 그리고, 두 손가락으로 이동·확대합니다' : 'S펜으로 그리고, 손가락으로 이동·확대합니다'); }),
@@ -4115,12 +4165,13 @@ function setPanelWide(on) { lsSet('panelNarrow', on ? '' : '1'); renderPanel(); 
 /** 다른 위치로 넘어가거나 닫을 때: 숫자패드 입력 마무리하고 비우기 */
 function npReset() { if (V.panelBoard) { try { V.panelBoard.end(); } catch (e) { /* */ } } npCommit(); if (NPAD.target) NPAD.target.classList.remove('np-on'); NPAD.target = null; NPAD.key = null; }   // 손글씨 마무리(인식) 먼저 → 그다음 숫자패드 비움 (다음 위치에 이어 붙지 않게)
 function openPanel(m) {
+  if (V.wsel && m !== WMULTI && !(V.wallMulti && isWall(m))) V.wsel.clear();   // 다른 것을 열면 조적벽 여러 개 선택은 풂
   if (V.panelM !== m) npReset();
   V.panelM = m; const P = $('#panel'); const wasHidden = P.hidden; P.hidden = false; renderPanel();
   if (wasHidden) setTimeout(() => ensureVisible(m), 60);
   requestRender(false);
 }
-function closePanel() { npReset(); V.panelBoard = null; V.panelM = null; const P = $('#panel'); if (!P.hidden) { P.hidden = true; P.innerHTML = ''; } requestRender(false); }
+function closePanel() { if (V.wsel) V.wsel.clear(); npReset(); V.panelBoard = null; V.panelM = null; const P = $('#panel'); if (!P.hidden) { P.hidden = true; P.innerHTML = ''; } requestRender(false); }
 function ensureVisible(m) {
   if (!V.sheet || !sheetHas(V.sheet, m)) return;
   const [x, y] = w2s(...itemXY(m)); const pad = 50;
@@ -4139,6 +4190,7 @@ function applyPanelRO(P) {
 }
 function renderPanel() {
   const m = V.panelM, P = $('#panel'); if (!m) return;
+  if (m === WMULTI) { renderWallMulti(P); applyPanelRO(P); return; }
   if (isApItem(m) || isWall(m)) { renderApPanel(); applyPanelRO(P); return; }
   if (!isLocked()) scanAdopt(m);
   const wide = panelWide();
@@ -4267,7 +4319,7 @@ function renderPanel() {
 
   // 사진번호 없이 찍었던 태블릿 사진 (예전 기록) → 번호 붙이기
   const loose = looseShots(m), shotBox = h('div', { class: 'files' });
-  for (const s of loose) { const img = h('img', { alt: '촬영 사진', onclick: () => openImage(s.key, { title: '태블릿 촬영', onDelete: () => { m.shots = m.shots.filter(x => x !== s); panelChanged(true); } }) }); blobURL(s.th || s.key).then(u => { if (u) img.src = u; }); shotBox.append(img); }
+  for (const s of loose) { const img = h('img', { alt: '촬영 사진', onclick: () => openImage(s.key, { title: '태블릿 촬영', onDelete: async () => { if (!await confirmShotDelete(m)) return false; m.shots = m.shots.filter(x => x !== s); panelChanged(true); } }) }); blobURL(s.th || s.key).then(u => { if (u) img.src = u; }); shotBox.append(img); }
   if (loose.length) looseAt.append(h('div', { class: 'pn-sec' }, h('h3', null, '사진번호 없는 촬영', h('span', { class: 'pill' }, loose.length)),
     h('div', { class: 'row' }, h('button', { class: 'btn', type: 'button', onclick: () => { const ns = numberShots(m, loose); panelChanged(true); toast(`사진번호 ${fmtNos(ns)}를 붙였습니다`); } }, '사진번호 붙이기')), shotBox));
 
@@ -4391,7 +4443,7 @@ function entrySection(m, kind, title, key, hasTarget) {
     const nIn = npField(h('input', { class: 'in', value: e.n, 'aria-label': `${title} 번호` }), { key: `${kind}:${npIdOf(e)}`, label: `${title.replace(/\(.*\)/, '')} 번호 ${pre}` });
     nIn.addEventListener('input', () => { e.n = nIn.value; touch(); updateCounter(); requestRender(false); });
     nIn.addEventListener('change', () => renderPanel());
-    const x = h('button', { class: 'x', type: 'button', 'aria-label': '줄 지우기', onclick: () => { m[key].splice(i, 1); if (e.shot) m.shots = m.shots.filter(s => s.key !== e.shot); panelChanged(true); } }, '×');
+    const x = h('button', { class: 'x', type: 'button', 'aria-label': '줄 지우기', onclick: () => delPhotoRow(m, e, () => { const j = m[key].indexOf(e); if (j >= 0) m[key].splice(j, 1); if (e.shot) m.shots = m.shots.filter(s => s.key !== e.shot); panelChanged(true); }) }, '×');
     let row;
     if (hasTarget) {
       const tg = h('select', { class: 'in' }, ['', ...scanTargets(m.type)].map(t => h('option', { value: t }, t || '대상')));
@@ -4454,7 +4506,7 @@ function entrySection(m, kind, title, key, hasTarget) {
 }
 /** 사진 줄에 붙은 태블릿 촬영 썸네일 (누르면 크게 · 지우면 사진 줄도 같이) */
 function shotThumbEl(o, e, sh, after) {
-  const img = h('img', { alt: '태블릿 촬영', title: '태블릿 촬영', onclick: () => openImage(sh.key, { title: `태블릿 촬영 · 사진 ${prefixOf('photo', e.n)}`, onDelete: () => { o.shots = o.shots.filter(x => x !== sh); o.photos = o.photos.filter(x => x !== e); touch(); updateCounter(); after(); } }) });
+  const img = h('img', { alt: '태블릿 촬영', title: '태블릿 촬영', onclick: () => openImage(sh.key, { title: `태블릿 촬영 · 사진 ${prefixOf('photo', e.n)}`, onDelete: async () => { if (!await confirmShotDelete(o, `사진 ${prefixOf('photo', e.n)}(태블릿 촬영)`)) return false; o.shots = o.shots.filter(x => x !== sh); o.photos = o.photos.filter(x => x !== e); touch(); updateCounter(); after(); } }) });
   blobURL(sh.th || sh.key).then(u => { if (u) img.src = u; });
   return h('span', { class: 'shot-th' }, img, h('i', null, '태블릿'));
 }
@@ -4487,6 +4539,19 @@ function takeShot(m) {
   inp.oncancel = () => shotPending(false);
   shotPending(true); inp.click();
 }
+/** 태블릿으로 찍은 사진 지우기 전 확인. 도면 위의 위치·결함·벽 것이면 되돌리기(↶) 기록도 남김 (사진 파일은 기기에 그대로 있어 되살아남) */
+async function confirmShotDelete(o, what = '태블릿으로 찍은 사진') {
+  const undoable = !!(V.sheet && sheetHas(V.sheet, o));
+  const ok = await confirmDlg('사진 지우기', `${what}을(를) 지울까요? ${undoable ? '지운 뒤에도 화면 위쪽 되돌리기(↶)로 살릴 수 있습니다.' : '이 사진은 되돌리기로 살릴 수 없습니다.'}`, '지우기', true);
+  if (ok && undoable) pushUndo([{ o, keys: ['photos', 'shots'] }]);
+  return ok;
+}
+/** 사진 줄 지우기: 태블릿 사진이 붙은 줄이면 확인, 도면 위 것이면 되돌리기 기록 */
+async function delPhotoRow(o, e, del) {
+  if (e && e.shot && (o.shots || []).some(s => s.key === e.shot)) { if (!await confirmShotDelete(o, `사진 ${prefixOf('photo', e.n)}(태블릿 촬영)`)) return; }
+  else if (V.sheet && sheetHas(V.sheet, o)) pushUndo([{ o, keys: ['photos', 'shots', 'scans', 'hammers'] }]);
+  del();
+}
 async function openImage(key, opt = {}) {
   let url = null;
   if (opt.page && opt.page > 0) {
@@ -4499,7 +4564,7 @@ async function openImage(key, opt = {}) {
   if (!url) { toast('미리보기를 만들 수 없는 파일입니다'); return; }
   const v = h('div', { class: 'viewer' },
     h('div', { class: 'vbar' }, h('span', { style: { color: '#fff', marginRight: 'auto', alignSelf: 'center' } }, opt.title || ''),
-      opt.onDelete && !isLocked() ? h('button', { class: 'btn danger', type: 'button', onclick: () => { v.remove(); opt.onDelete(); } }, '지우기') : null,
+      opt.onDelete && !isLocked() ? h('button', { class: 'btn danger', type: 'button', onclick: async () => { v.style.display = 'none'; const r = await opt.onDelete(); if (r === false) v.style.display = ''; else v.remove(); } }, '지우기') : null,
       h('button', { class: 'btn', type: 'button', onclick: () => v.remove() }, '닫기')),
     h('img', { src: url, alt: opt.title || '' }));
   document.body.append(v);
@@ -4508,7 +4573,7 @@ async function openImage(key, opt = {}) {
 /* ================= 4. 외관조사 (같은 도면 화면, V.mode = 'ap') ================= */
 function setMode(mode) {
   if (V.mode !== mode) {
-    closePanel(); V.sel = null; V.stroke = null; V.drag = null; clearUndo();
+    closePanel(); V.sel = null; V.stroke = null; V.drag = null; clearUndo(); V.wallMulti = false; V.wsel.clear();
     if (V.calib || V.tool === 'region') endSpecialTool();
     if (mode === 'ap') { V.dispMember = V.disp; V.disp = 'field'; closePeek(); }
     else V.disp = V.dispMember || 'field';
@@ -4529,6 +4594,15 @@ const AP_BAR_KINDS = [
   ['heavy', '중량물', '<rect x="4.5" y="4.5" width="15" height="15" rx="3.5"/><path d="M9 15V9l3 3 3-3v6"/>'],
   ['wall', '조적벽', '<path d="M3 17h18M3 7h18" stroke-width="4"/>'],
 ];
+/** 조적벽 투명도 조절 바: 오른쪽으로 갈수록 투명 (0~90%). 화면에서만, 내보내기 위치도는 항상 진하게 */
+function wallAlphaControl(cls) {
+  const tr = Math.round((1 - wallAlpha()) * 100);
+  const val = h('b', { class: 'alpha-v' }, tr + '%');
+  const rg = h('input', { type: 'range', class: 'own-drag', min: '0', max: '90', step: '5', value: String(tr), 'aria-label': '조적벽 선 투명도' });
+  rg.addEventListener('input', () => { const t = Number(rg.value); V.opts.wallAlpha = Math.round(100 - t) / 100; val.textContent = t + '%'; $$('.alpha-v').forEach(e => { e.textContent = t + '%'; }); requestRender(false); });
+  rg.addEventListener('change', () => saveOpts());
+  return h('label', { class: cls, title: '조적벽 선을 투명하게 해서 밑의 도면 선을 보기 (화면에서만 · 내보내기는 항상 진하게)' }, h('span', null, '벽 투명도'), rg, val);
+}
 function syncApBar() {
   const box = $('#apBar'); if (!box || V.mode !== 'ap') return;
   box.innerHTML = '';
@@ -4556,10 +4630,16 @@ function syncApBar() {
   if (V.apKind === 'wall') box.append(h('div', { class: 'ap-seg snap', role: 'group', 'aria-label': '조적벽 선 각도' }, [[true, '수평·수직·45°', '<path d="M5 19V5M5 19h14M5 19L16 8"/>'], [false, '자유 각도', '<path d="M4 17L20 8"/><circle cx="4" cy="17" r="1.8"/><circle cx="20" cy="8" r="1.8"/>']].map(([v, lb, ic]) =>
     h('button', { type: 'button', class: V.wallSnap === v ? 'on' : '', 'aria-pressed': String(V.wallSnap === v), title: v ? '수평·수직·45°로 맞춰 그리기' : '보정 없이 그은 방향 그대로', onclick: () => { V.wallSnap = v; lsSet('wallSnap', v ? '1' : '0'); syncApBar(); toast(v ? '조적벽을 수평·수직·45°로 맞춰 그립니다' : '조적벽을 그은 방향 그대로 그립니다 (끝점은 다른 벽 끝에 붙음)', { ms: 2200 }); } },
       h('span', { class: 'ap-ic', html: `<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ic}</svg>` }), h('span', null, lb)))));
+  // 조적벽 여러 개 고르기 (높이 한꺼번에 입력)
+  if (V.apKind === 'wall') box.append(h('div', { class: 'ap-seg thick multi' }, h('button', { type: 'button', class: V.wallMulti ? 'on' : '', 'aria-pressed': String(V.wallMulti), title: '벽을 톡톡 눌러 여러 개 고르고 높이를 한꺼번에 입력 (PC: Shift+클릭)', onclick: () => setWallMulti(!V.wallMulti) },
+    h('span', { class: 'ap-ic', html: '<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M4 7h9M4 12h9M4 17h9"/><path d="M16 7l1.5 1.5L21 5M16 14l1.5 1.5L21 12"/></svg>' }), h('span', null, V.wallMulti ? `여러 개 선택 ${V.wsel.size ? V.wsel.size + '개' : '중'}` : '여러 개 선택'))));
+  // 조적벽 선 투명도 (화면에서만 – 밑의 도면 선이 비쳐 보이게)
+  if (V.apKind === 'wall') box.append(wallAlphaControl('ap-seg alpha'));
   box.append(h('button', { type: 'button', class: 'ap-ck', onclick: () => openChecklist() }, h('span', { html: '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="5" y="4" width="14" height="17" rx="2"/><path d="M9 4V2.8h6V4M8.5 10l1.6 1.6 3-3M8.5 16l1.6 1.6 3-3"/></svg>' }), '건물 체크리스트'));
 }
 function setApKind(k) {
   V.apKind = k; lsSet('apKind', k);
+  if (k !== 'wall' && V.wallMulti) { V.wallMulti = false; if (V.panelM === WMULTI) closePanel(); V.wsel.clear(); }
   V.opts.shapeItAp = k; saveOpts();   // 새 도형 항목도 따라감 (결함 → 균열, 중량물, 조적벽 → 조적조)
   if (V.tool !== 'arrow') setTool('arrow');
   syncApUI(); requestRender(false);
@@ -4597,13 +4677,72 @@ function finishWall(pts) {
     const pt = pts[pts.length - 1]; const m = hitMarker(pt);
     if (m) { V.sel = { type: 'm', id: m.id }; openPanel(m); requestRender(false); return; }
     const w = hitWall(pt);
-    if (w) { V.sel = { type: 'w', id: w.id }; openPanel(w); } else { V.sel = null; if (V.panelM) closePanel(); }
+    if (w) wallTap(w); else if (!V.wallMulti) { V.sel = null; if (V.panelM) closePanel(); }
     requestRender(false); return;
   }
   pushUndo();
   const w = { id: uid(), kind: 'wall', pts: [g.a.w[0], g.a.w[1], g.b.w[0], g.b.w[1]], thick: isRcWall(V.wallPart) ? V.rcThick : V.wallThick, part: V.wallPart, h: '', memo: '', photos: [], shots: [], created: Date.now() };
   V.sheet.walls.push(w); touchSheet(); syncApBar();
   if (V.panelM && isWall(V.panelM)) { V.sel = { type: 'w', id: w.id }; openPanel(w); } else V.sel = null;
+}
+/* ================= 조적벽 여러 개 고르기 → 높이 한꺼번에 =================
+ * 태블릿: 위쪽 ‘여러 개 선택’을 켜고 벽을 톡톡 (다시 누르면 빠짐) / PC: Shift·Ctrl+클릭.
+ * 2개 이상 고르면 상세창이 ‘조적벽 n개 선택’으로 바뀌고, 높이 H를 넣으면 고른 벽 모두에 같은 값이 들어감 */
+const WMULTI = { kind: 'wallMulti', id: '__wmulti' };
+V.wsel = new Set(); V.wallMulti = false;
+function wselPrune() { const ids = new Set(((V.sheet && V.sheet.walls) || []).map(w => w.id)); for (const id of [...V.wsel]) if (!ids.has(id)) V.wsel.delete(id); }
+const selWalls = () => ((V.sheet && V.sheet.walls) || []).filter(w => V.wsel.has(w.id));
+/** 벽을 톡: 보통은 그 벽 하나, 여러 개 선택 중(또는 Shift·Ctrl)이면 넣고 빼기 */
+function wallTap(w) {
+  if (!(V.wallMulti || V.mod)) { V.wsel.clear(); V.sel = { type: 'w', id: w.id }; openPanel(w); requestRender(false); return; }
+  if (!V.wsel.size && V.sel && V.sel.type === 'w' && V.sel.id !== w.id && V.sheet.walls.some(x => x.id === V.sel.id)) V.wsel.add(V.sel.id);   // 지금 고른 벽부터
+  if (V.wsel.has(w.id)) V.wsel.delete(w.id); else V.wsel.add(w.id);
+  syncWsel();
+}
+function syncWsel() {
+  wselPrune(); const ws = selWalls();
+  if (ws.length >= 2) { V.sel = null; openPanel(WMULTI); }
+  else if (ws.length === 1) { V.sel = { type: 'w', id: ws[0].id }; if (!V.wallMulti) V.wsel.clear(); openPanel(ws[0]); }
+  else { V.sel = null; if (V.panelM) closePanel(); }
+  syncApBar(); requestRender(false);
+}
+function setWallMulti(on, seed) {
+  V.wallMulti = !!on;
+  if (on) { V.wsel.clear(); if (seed) V.wsel.add(seed.id); toast('벽을 톡톡 눌러 여러 개 고르세요 (다시 누르면 빠짐)', { ms: 2600 }); syncWsel(); }
+  else { const ws = selWalls(); V.wsel.clear(); if (V.panelM === WMULTI) { if (ws.length) { V.sel = { type: 'w', id: ws[0].id }; openPanel(ws[0]); } else closePanel(); } else if (V.panelM && isWall(V.panelM)) renderPanel(); }
+  syncApBar(); requestRender(false);
+}
+function renderWallMulti(P) {
+  P.innerHTML = ''; P.classList.remove('wide');
+  const sh = V.sheet, ws = selWalls(); if (!ws.length) { closePanel(); return; }
+  const lens = ws.map(w => wallLenMM(sh, w.pts)), tot = lens.every(v => v != null) ? lens.reduce((a, b) => a + b, 0) : null;
+  const kinds = new Map(); for (const w of ws) { const k = wallLabel(w); kinds.set(k, (kinds.get(k) || 0) + 1); }
+  P.append(h('div', { class: 'pn-head' },
+    h('div', { class: 'pn-no wall multi' }, ws.length),
+    h('div', { class: 'pn-title' }, h('h2', null, `조적벽 ${ws.length}개 선택`), h('small', null, [sh.name, [...kinds].map(([k, n]) => `${k} ${n}`).join(' · '), tot ? '길이 합 ' + fmtLen(tot) : ''].filter(Boolean).join(' · '))),
+    h('button', { class: 'btn small', type: 'button', onclick: () => setWallMulti(false), title: '여러 개 선택 끝내기' }, '선택 끝'),
+    h('button', { class: 'btn small', type: 'button', onclick: () => { V.wsel.clear(); closePanel(); }, 'aria-label': '닫기' }, '닫기')));
+  const body = h('div', { class: 'pn-body' }), npSlot = h('div', { class: 'np-slot' }); P.append(body, npSlot); V.panelBoard = null;
+  // 높이 H: 고른 벽 모두에 (값이 다르면 빈칸으로 보여 줌)
+  const same = ws.every(w => (w.h || '') === (ws[0].h || ''));
+  const fmtH = s => s.replace(/,/g, '').replace(/\d{4,}/g, m => Number(m).toLocaleString('en-US'));
+  const hIn = npField(h('input', { class: 'in', value: same ? (ws[0].h || '') : '', placeholder: same ? '예: 3,300-보춤' : '값이 서로 다름 – 넣으면 모두 같은 값으로', 'aria-label': '높이 H (고른 벽 모두)' }), {
+    key: 'wallm:h', label: `높이 H (${ws.length}개)`, format: fmtH,
+    back: v => (v.endsWith('보춤') ? v.slice(0, -2).replace(/-$/, '') : v.slice(0, -1)),
+    extras: [{ label: '-', text: '-' }, { label: '보춤', fn: t2 => { t2.value = fmtH((t2.value || '') + (/\d$/.test(t2.value || '') ? '-보춤' : '보춤')); t2.dispatchEvent(new Event('input', { bubbles: true })); NPAD.fresh = false; } }],
+  });
+  // (높이는 다른 입력칸처럼 되돌리기 대상이 아님 – 고친 값은 다시 넣으면 됨)
+  hIn.addEventListener('input', () => { for (const w of ws) w.h = hIn.value; touch(); for (const td of body.querySelectorAll('.wm-h')) td.textContent = hIn.value || '–'; });
+  body.append(h('div', { class: 'pn-sec' }, h('h3', null, '높이 H', h('small', null, `고른 ${ws.length}개 모두에 같은 값 · ‘보춤’ 버튼으로 3,300-보춤`)), hIn));
+  // 고른 벽 목록 (× = 선택에서 빼기)
+  body.append(h('div', { class: 'pn-sec' }, h('h3', null, '고른 벽'),
+    h('div', { class: 'wm-list' }, ws.map(w => h('div', { class: 'wm-row' },
+      h('i', { style: { background: wallCol(w.part, w.thick) } }), h('span', null, wallName(sh, w)), h('span', { class: 'wm-h' + (same ? '' : ' diff') }, w.h || '–'),
+      h('button', { class: 'btn small ghost', type: 'button', 'aria-label': '선택에서 빼기', onclick: () => { V.wsel.delete(w.id); syncWsel(); } }, '×')))),
+    h('p', { class: 'hint', style: { margin: 0 } }, '도면에서 벽을 톡 누르면 넣고 빼기가 됩니다. PC는 Shift 또는 Ctrl을 누른 채 클릭.')));
+  P.append(h('div', { class: 'pn-foot' }, h('span', { class: 'spacer' }),
+    h('button', { class: 'btn', type: 'button', onclick: () => { V.wsel.clear(); closePanel(); } }, '선택 해제')));
+  npMount(npSlot);
 }
 function removeWall(w) {
   V.sheet.walls = V.sheet.walls.filter(x => x !== w);
@@ -4657,7 +4796,7 @@ function photoBlock(o, opt = {}) {
     const cap = h('input', { class: 'in', value: e.memo || '', placeholder: opt.cap || '메모', 'aria-label': opt.cap || '메모' });
     cap.addEventListener('input', () => { e.memo = cap.value; touch(); });
     box.append(h('div', { class: 'ent two' }, h('div', { class: 'pre' }, h('span', null, pre), nIn), cap,
-      h('button', { class: 'x', type: 'button', 'aria-label': '줄 지우기', onclick: () => { o.photos.splice(i, 1); if (e.shot) o.shots = o.shots.filter(s => s.key !== e.shot); touch(); redraw(); } }, '×')));
+      h('button', { class: 'x', type: 'button', 'aria-label': '줄 지우기', onclick: () => delPhotoRow(o, e, () => { const j = o.photos.indexOf(e); if (j >= 0) o.photos.splice(j, 1); if (e.shot) o.shots = o.shots.filter(s => s.key !== e.shot); touch(); redraw(); }) }, '×')));
     const n = numv(e.n), fs = files.filter(f => fileNum(f) === n), sh = shotOfEntry(o, e);
     if (fs.length || sh) { const fb = h('div', { class: 'files' }); if (sh) fb.append(shotThumbEl(o, e, sh, redraw)); for (const f of fs) fb.append(fileThumbEl(f)); box.append(fb); }
   });
@@ -4669,7 +4808,7 @@ function photoBlock(o, opt = {}) {
   const loose = looseShots(o);   // 예전에 번호 없이 찍은 사진
   if (loose.length) {
     const sb = h('div', { class: 'files' });
-    for (const s of loose) { const img = h('img', { alt: '태블릿 촬영', onclick: () => openImage(s.key, { title: '태블릿 촬영', onDelete: () => { o.shots = o.shots.filter(x => x !== s); touch(); redraw(); } }) }); blobURL(s.th || s.key).then(u => { if (u) img.src = u; }); sb.append(img); }
+    for (const s of loose) { const img = h('img', { alt: '태블릿 촬영', onclick: () => openImage(s.key, { title: '태블릿 촬영', onDelete: async () => { if (!await confirmShotDelete(o)) return false; o.shots = o.shots.filter(x => x !== s); touch(); redraw(); } }) }); blobURL(s.th || s.key).then(u => { if (u) img.src = u; }); sb.append(img); }
     box.append(h('div', { class: 'row' }, h('small', { class: 'hint' }, `사진번호 없는 촬영 ${loose.length}장`), h('button', { class: 'btn small', type: 'button', onclick: () => { const ns = numberShots(o, loose, opt.capDefault); touch(); redraw(); toast(`사진번호 ${fmtNos(ns)}를 붙였습니다`); } }, '사진번호 붙이기')), sb);
   }
   return box;
@@ -4715,7 +4854,7 @@ function renderApPanel() {
     left.append(h('div', { class: 'pn-sec ap-mem' }, h('h3', null, '부재'), chipRow(AP_MEMBERS, a.member, v => { a.member = a.member === v ? '' : v; changed(true); }, 'chip')));
     const note = h('input', { class: 'in', value: a.note, placeholder: '추가 설명 (예: 보수 후 재균열)' });
     note.addEventListener('input', () => { a.note = note.value.trim(); changed(); });
-    body.append(h('div', { class: 'pn-sec' }, h('h3', null, '결함 유형'), chipRow(AP_DEFECTS, a.defect, v => { a.defect = a.defect === v ? '' : v; changed(true); }, 'chip'), note));
+    body.append(h('div', { class: 'pn-sec' }, h('h3', null, '결함 유형', h('small', null, '여러 개 고를 수 있음 · 다시 누르면 빠짐')), chipRow(AP_DEFECTS, defectTypes(a), v => { toggleDefectType(a, v); changed(true); }, 'chip'), note));
     const num = (k, lb, unit) => { const i = npField(h('input', { class: 'in num', value: a[k], 'aria-label': lb }), { key: 'ap:' + k, label: `${lb} (${unit})` }); i.addEventListener('input', () => { a[k] = i.value; changed(); const s = $('#apSize'); if (s) s.textContent = apSize(a) || '–'; }); return h('label', { class: 'f' }, `${lb} (${unit})`, i); };
     const crack = isCrackType(a.defect) || (!a.defect && !a.area);
     const fields = crack ? [num('w', '균열폭', 'mm'), num('len', '길이', 'm'), num('cnt', '개수', 'EA'), num('area', '면적', '㎡')] : [num('area', '면적', '㎡'), num('cnt', '개수', 'EA'), num('w', '균열폭', 'mm'), num('len', '길이', 'm')];
@@ -4787,6 +4926,7 @@ function renderWallPanel(P, w, keep) {
   body.append(h('div', { class: 'pn-sec' }, h('h3', null, '높이 H', h('small', null, '숫자패드의 ‘보춤’ 버튼으로 3,300-보춤')), hIn), h('div', { class: 'pn-sec' }, h('h3', null, '메모'), memo));
   // 이 벽 사진 (사진번호 연결 · 바로 찍기)
   body.append(photoBlock(w, { npk: 'wph', label: `${sh.name} ${wallName(sh, w)}`, cap: '내용 (예: 개구부, 균열, 마감 상태)', onChange: () => { npRebind(); requestRender(false); } }));
+  body.append(h('button', { class: 'btn', type: 'button', onclick: () => setWallMulti(!V.wallMulti, w) }, V.wallMulti ? '여러 개 선택 끝내기' : '여러 개 선택 (높이 한꺼번에)'));
   body.append(h('p', { class: 'hint', style: { margin: 0 } }, '선 끝을 옮기려면 선택·이동 도구로 벽을 고른 뒤 끝의 동그라미를 끄세요. 층별 조적 개체·줄눈 상태는 3 현장조사의 ‘조적조 상태’에 적습니다.'),
     h('button', { class: 'btn', type: 'button', onclick: () => openMasonry() }, '이 층 조적조 상태 적기'));
   P.append(h('div', { class: 'pn-foot' },
@@ -5022,6 +5162,8 @@ const SK_ICON = {
   undo: '<path d="M9 14L4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 010 11H11"/>',
   big: '<path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/>',
   clear: '<path d="M4 7h16M9 7V4.5h6V7M6.5 7l1 13h9l1-13M10 11v6M14 11v6"/>',
+  lock: '<rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V8a4 4 0 018 0v3"/>',
+  unlock: '<rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V8a4 4 0 017.6-1.8"/>',
 };
 const skSvg = k => `<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${SK_ICON[k]}</svg>`;
 
@@ -5042,22 +5184,31 @@ function mountCrackPad(host, a, opt = {}) {
   const colors = SK_COLORS.map(([c, nm]) => h('button', { type: 'button', class: 'cp-sw', 'data-c': c, style: { background: c }, 'aria-label': `펜 ${nm}`, onclick: () => { SK_COLOR = c; SK_TOOL = 'pen'; syncBtns(); } }));
   const undoB = tb('undo', opt.big ? '되돌리기' : '', () => { if (!hist.length) return; a.sketch = JSON.parse(hist.pop()); changed(); syncTpl(); redraw(); }, '되돌리기');
   const clearB = h('button', { type: 'button', class: 'cp-b' + (opt.big ? '' : ' ico'), title: '모두 지우기', 'aria-label': '모두 지우기', html: opt.big ? '모두 지우기' : skSvg('clear'), onclick: async () => { if (!skHas(a)) return; if (!await confirmDlg('스케치 지우기', '그린 선과 글자를 모두 지울까요? (되돌리기로 살릴 수 있습니다)', '모두 지우기', true)) return; save(); skObj(a).strokes = []; skObj(a).texts = []; changed(); redraw(); } });
+  // 잠금: 다 그린 스케치를 실수로 건드리지 않게 (결함마다 저장 · 잠그면 판 위에서 손가락으로 스크롤만)
+  let wrapEl = null;
+  const lockB = h('button', { type: 'button', class: 'cp-b lock', onclick: () => { a.skLock = !a.skLock; touch(); syncBtns(); toast(a.skLock ? '스케치를 잠갔습니다 – 고치려면 잠금 풀기' : '스케치 잠금을 풀었습니다', { ms: 1800 }); } });
   const tools = h('div', { class: 'cp-tools' },
     tb('pen', '펜', () => { SK_TOOL = 'pen'; syncBtns(); }), h('span', { class: 'cp-sws' }, colors),
     tb('text', '글자', () => { SK_TOOL = 'text'; syncBtns(); }, '누른 자리에 글자 (예: 0.3mm, L=1.5m)'),
     tb('erase', '지우개', () => { SK_TOOL = 'erase'; syncBtns(); }, '선·글자를 문질러 지우기'),
-    h('span', { class: 'spacer' }), undoB, clearB,
+    h('span', { class: 'spacer' }), undoB, clearB, lockB,
     opt.big ? h('button', { type: 'button', class: 'btn pri', onclick: () => opt.onClose && opt.onClose() }, '완료') : null);
   // 상세창: '크게'는 제목 줄 오른쪽에 (도구는 한 줄로)
   if (!opt.big && opt.head) opt.head.append(h('span', { class: 'spacer' }), tb('big', '크게', () => openCrackBig(a, opt.onBigClose), '화면 가득 크게 그리기'));
   function syncBtns() {
-    $$('.cp-b[data-k]', tools).forEach(b => { const on = b.dataset.k === SK_TOOL; b.classList.toggle('on', on && ['pen', 'text', 'erase'].includes(b.dataset.k)); });
-    colors.forEach(b => b.classList.toggle('on', SK_TOOL === 'pen' && b.dataset.c === SK_COLOR));
-    undoB.disabled = !hist.length; clearB.disabled = !skHas(a);
+    const L = !!a.skLock;
+    $$('.cp-b[data-k]', tools).forEach(b => { const on = b.dataset.k === SK_TOOL; b.classList.toggle('on', !L && on && ['pen', 'text', 'erase'].includes(b.dataset.k)); if (b.dataset.k !== 'big') b.disabled = L; });
+    colors.forEach(b => { b.classList.toggle('on', !L && SK_TOOL === 'pen' && b.dataset.c === SK_COLOR); b.disabled = L; });
+    $$('button', tplBox).forEach(b => { b.disabled = L; });
+    undoB.disabled = L || !hist.length; clearB.disabled = L || !skHas(a);
+    lockB.classList.toggle('on', L); lockB.setAttribute('aria-pressed', String(L)); lockB.title = L ? '잠금 풀기 (다시 그리기)' : '잠그기 (실수로 그려지지 않게)';
+    lockB.innerHTML = skSvg(L ? 'lock' : 'unlock') + `<span>${L ? '잠김' : '잠금'}</span>`;
+    if (wrapEl) wrapEl.classList.toggle('locked', L);
   }
   // 판
   const cv = h('canvas', { class: 'cp-cv', 'aria-label': '균열 스케치 판' });
-  const wrap = h('div', { class: 'cp-wrap' }, cv);
+  const wrap = h('div', { class: 'cp-wrap' + (a.skLock ? ' locked' : '') }, cv, h('span', { class: 'cp-lockmark', html: skSvg('lock') + '잠김' }));
+  wrapEl = wrap;
   let cur = null, raf = 0;
   function redraw() {
     raf = 0; const c = cv.getContext('2d'); const W = cv.width, H = cv.height; if (W < 2) return;
@@ -5086,6 +5237,7 @@ function mountCrackPad(host, a, opt = {}) {
   cv.addEventListener('pointerdown', e => {
     if (e.pointerType === 'touch' && !V.opts.finger) return;    // 손가락은 (설정이 꺼져 있으면) 그리지 않음 – 손바닥 방지
     if (e.pointerType === 'mouse' && e.button !== 0) return;
+    if (a.skLock) { if (e.pointerType !== 'touch') toast('잠긴 스케치입니다 – 고치려면 위의 ‘잠김’을 눌러 푸세요', { ms: 1800 }); return; }   // 잠금: 손가락은 스크롤로 통과
     if (cur) return;
     e.preventDefault(); try { cv.setPointerCapture(e.pointerId); } catch (er) { /* */ }
     const side = e.pointerType === 'pen' && ((e.buttons & 2) || (e.buttons & 32));   // 펜 옆 버튼 = 지우개
