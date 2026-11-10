@@ -772,7 +772,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
 </script>
 
 <script>
-const APP_VERSION = '2026.11.10-1703';
+const APP_VERSION = '2026.11.10-1717';
 const APP_EDITION = 'field';
 'use strict';
 /* ================= 기본 유틸 ================= */
@@ -1888,11 +1888,13 @@ function detectDXFSheets(d, flat, base) {
     if (!ok) return;
     const w = b.x1 - b.x0, hh = b.y1 - b.y0, ar = Math.max(w, hh) / Math.min(w, hh);
     if (ar < 1.2 || ar > 1.8) return;
-    cands.push({ x0: b.x0, y0: b.y0, x1: b.x1, y1: b.y1, area: w * hh });
+    cands.push({ x0: b.x0, y0: b.y0, x1: b.x1, y1: b.y1, area: w * hh, blk: t === 'INSERT' ? gv(r, 2) : null });
   });
   if (cands.length < 2) return [];
   const amax = Math.max(...cands.map(c => c.area));
-  const big = cands.filter(c => c.area >= amax * 0.2).sort((a, b) => b.area - a.area);
+  // 큰 틀(가장 큰 것의 20% 이상) + 같은 도곽 블록을 작게 넣은 시트 (예: 배근일람표를 A3 크기 도곽으로 – 면적은 큰 도면의 10% 남짓)
+  const sheetBlk = new Set(cands.filter(c => c.area >= amax * 0.2 && c.blk).map(c => c.blk));
+  const big = cands.filter(c => c.area >= amax * 0.2 || (c.blk && sheetBlk.has(c.blk) && c.area >= amax * 0.01)).sort((a, b) => b.area - a.area);
   const within = (o, c) => { const tol = Math.max(o.x1 - o.x0, o.y1 - o.y0) * 0.01; return c.x0 >= o.x0 - tol && c.x1 <= o.x1 + tol && c.y0 >= o.y0 - tol && c.y1 <= o.y1 + tol; };
   let fr = []; for (const c of big) if (!fr.some(o => within(o, c))) fr.push(c);   // 안쪽에 겹친 틀(표제란 등)은 제외
   const inside = (t, c) => t.x >= c.x0 && t.x <= c.x1 && t.y >= c.y0 && t.y <= c.y1;
@@ -1902,7 +1904,7 @@ function detectDXFSheets(d, flat, base) {
   const mh = fr.map(c => c.y1 - c.y0).sort((a, b) => a - b)[fr.length >> 1];
   fr.sort((a, b) => (a.y0 + a.y1) / 2 - (b.y0 + b.y1) / 2);
   const rows = []; for (const c of fr) { const cy = (c.y0 + c.y1) / 2; const row = rows.find(rw => Math.abs(rw.cy - cy) < mh * 0.5); if (row) row.items.push(c); else rows.push({ cy, items: [c] }); }
-  fr = rows.flatMap(rw => rw.items.sort((a, b) => a.x0 - b.x0));
+  fr = rows.flatMap(rw => rw.items.sort((a, b) => (a.x0 - b.x0) || (a.y0 - b.y0)));   // 같은 x면 위의 것부터 (작은 시트가 위아래로 쌓인 경우)
   // 이름: 도곽 안 글자 중 도면명다운 것 (모든 도곽에 똑같이 있는 공사명·회사명, 축척 숫자 등은 제외)
   const lists = fr.map(c => flat.texts.filter(t => inside(t, c)).map(t => ({ s: t.lines.join(' ').replace(/\s+/g, ' ').trim(), h: t.h, layer: t.layer || '' })).filter(x => x.s));
   const freq = new Map(); for (const l of lists) for (const s of new Set(l.map(x => x.s))) freq.set(s, (freq.get(s) || 0) + 1);
