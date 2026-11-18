@@ -221,6 +221,13 @@ select.in.disp { min-height: 44px; width: auto; max-width: 260px; }
 .msize span { display: flex; flex-direction: column; align-items: center; min-width: 64px; padding: 0 4px; line-height: 1.2; border-inline: 1px solid var(--line); }
 .msize span small { font-size: 11px; }
 .msize span b { font-weight: 400; font-size: 14px; color: var(--navy-ink); font-variant-numeric: tabular-nums; }
+/* 위치표시 옆 글씨 켜기/끄기 (번호 크기 옆) */
+.msize button.lbl-tog { width: auto; min-width: 62px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 1px; padding: 2px 8px; border-left: 1px solid var(--line); color: var(--navy); font-size: 11px; }
+.msize button.lbl-tog small { font-size: 11px; color: var(--navy-ink); }
+.msize button.lbl-tog .sl { display: none; stroke: var(--red); }
+.msize button.lbl-tog.off { background: #fdecea; color: var(--muted); }
+.msize button.lbl-tog.off .sl { display: inline; }
+.msize button.lbl-tog.off small { color: var(--red); font-weight: 700; }
 .stage-empty { position: absolute; inset: 0; display: grid; place-items: center; text-align: center; color: var(--muted); padding: 24px; }
 .stage-empty div { display: flex; flex-direction: column; gap: 12px; align-items: center; max-width: 380px; }
 .loading { position: absolute; inset: 0; display: grid; place-items: center; background: rgba(237,241,246,.7); z-index: 6; font-size: 14px; color: var(--navy-ink); }
@@ -637,7 +644,7 @@ body.locked #apBar .ap-seg:not(.thick):not(.snap) { pointer-events: none; opacit
           <div class="banner" id="banner" hidden></div>
           <div class="zoom"><button type="button" id="zIn" aria-label="확대">+</button><button type="button" id="zOut" aria-label="축소">−</button></div>
           <div class="mstyle" id="mStyle" role="group" aria-label="위치 표시 모양"><button type="button" data-s="arrow" title="화살표로 표시"><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="17" cy="7" r="4"/><path d="M14 10 6 18"/><path d="M6 18l1.2-5M6 18l5-1.2"/></svg><small>화살표</small></button><button type="button" data-s="cross" title="⊗ 아래에서 위로 조사(보·슬래브 하부)"><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="8" cy="12" r="5"/><path d="M5 9l6 6M11 9l-6 6"/><circle cx="18.5" cy="12" r="3.5"/></svg><small>하부</small></button></div>
-          <div class="msize" aria-label="번호 크기"><button type="button" id="mkDown" aria-label="번호 작게">−</button><span id="mkVal"><small>번호 크기</small><b>100%</b></span><button type="button" id="mkUp" aria-label="번호 크게">+</button></div>
+          <div class="msize" aria-label="번호 크기"><button type="button" id="mkDown" aria-label="번호 작게">−</button><span id="mkVal"><small>번호 크기</small><b>100%</b></span><button type="button" id="mkUp" aria-label="번호 크게">+</button><button type="button" id="lblTog" class="lbl-tog" aria-pressed="true" title="위치표시 옆 글씨(부재·크기 등) 켜기/끄기 · 키보드 L"><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="5.5" cy="12" r="3"/><path d="M11 8h9M11 12h7M11 16h9"/><path class="sl" d="M3 21 21 3"/></svg><small>글씨 켬</small></button></div>
           <div class="ref-btns" id="refBtns" hidden></div>
           <div class="ap-bar" id="apBar" hidden></div>
           <div class="shape-bar" id="shapeBar" hidden></div>
@@ -772,7 +779,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
 </script>
 
 <script>
-const APP_VERSION = '2026.11.10-2118';
+const APP_VERSION = '2026.11.18-1626';
 const APP_EDITION = 'field';
 'use strict';
 /* ================= 기본 유틸 ================= */
@@ -2321,7 +2328,7 @@ function drawMarkups(c, sheet, view, o) {
       c.font = `${(R * 0.58).toFixed(1)}px ${UI_FONT}`; c.textBaseline = 'middle';
       for (const it of on) { c.fillStyle = it.color; c.beginPath(); if (c.roundRect) c.roundRect(bx, by, bw, bw, R * 0.18); else c.rect(bx, by, bw, bw); c.fill(); c.fillStyle = '#fff'; c.fillText(it.short, bx + bw / 2, by + bw / 2 + R * 0.03); bx += bw + gap; }
     }
-    if (o.labels) drawSideLabel(c, cx, cy, R, markerLabelLines(m, o.disp, o.prefixOf), m.tx != null && X(m.tx) > cx + R);
+    if (o.labels || (sel && o.selLabel)) drawSideLabel(c, cx, cy, R, markerLabelLines(m, o.disp, o.prefixOf), m.tx != null && X(m.tx) > cx + R);   // 글씨를 꺼도 누른 위치는 보임
     if (sel && m.tx != null) drawTipHandle(c, X(m.tx), Y(m.ty));
   }
   c.restore();
@@ -2519,7 +2526,7 @@ function drawApMarkups(c, sheet, view, o) {
     const sel = o.sel && o.sel.type === 'm' && o.sel.id === a.id;
     if (sel) { c.beginPath(); if (sq) c.rect(cx - R - 5, cy - R - 5, (R + 5) * 2, (R + 5) * 2); else c.arc(cx, cy, R + 5, 0, Math.PI * 2); c.strokeStyle = '#f08a00'; c.lineWidth = 3.5; c.stroke(); }
     drawNumBadge(c, cx, cy, R, String(a.no), col, lw, sq ? 'square' : 'circle', o.screen && apFilled(a) ? (sq ? '#efe9f8' : '#fdecea') : '#fff');
-    if (o.labels) drawSideLabel(c, cx, cy, R, apLabelLines(a), a.tx != null && X(a.tx) > cx + R);
+    if (o.labels || (sel && o.selLabel)) drawSideLabel(c, cx, cy, R, apLabelLines(a), a.tx != null && X(a.tx) > cx + R);
     if (sel && a.tx != null) drawTipHandle(c, X(a.tx), Y(a.ty));
   }
   c.restore();
@@ -2577,12 +2584,14 @@ function initViewer() {
   $('#mkDown').onclick = () => mk(1 / 1.15); $('#mkUp').onclick = () => mk(1.15);
   for (const b of $$('#mStyle button')) b.onclick = () => { V.opts.markStyle = b.dataset.s; saveOpts(); syncMarkStyle(); if (V.tool !== 'arrow') setTool('arrow'); toast(b.dataset.s === 'cross' ? (V.mode === 'ap' ? '⊗ 상부부재 결함으로 찍습니다 (톡: 바로 옆에 번호, 끌기: 그 방향에 번호)' : '⊗ 하부 조사 표시로 찍습니다 (톡: 바로 옆에 번호, 끌기: 그 방향에 번호)') : '화살표로 찍습니다', { ms: 2200 }); };
   syncMarkStyle();
+  $('#lblTog').onclick = () => setLabels(!V.opts.labels); syncLabelTog();
   buildToolbar();
   document.addEventListener('keydown', e => {
     if (!isStageView() || (e.target.closest && e.target.closest('input,textarea,select,.dlg')) || document.querySelector('.cp-big')) return;
     if (isLocked() && ((e.ctrlKey || e.metaKey) || e.key === 'Delete' || e.key === 'Backspace')) return;   // 잠김: 되돌리기·지우기 키 무시
     if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z') { e.preventDefault(); e.shiftKey ? redo() : undo(); }
     else if (e.key === 'Delete' && V.sel) deleteSelection();
+    else if ((e.key === 'l' || e.key === 'L' || e.key === 'ㅣ') && !e.ctrlKey && !e.metaKey && !e.altKey) setLabels(!V.opts.labels);
     else if (e.key === 'Escape') { if (PK.open) closePeek(); else if (V.calib || V.tool === 'region') endSpecialTool(); else closePanel(); }
   });
   document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible' && isStageView()) wakeLock(true); });
@@ -2648,8 +2657,8 @@ function renderFg() {
   c.setTransform(V.dpr, 0, 0, V.dpr, 0, 0);
   const R = markerR();
   const ap = V.mode === 'ap';
-  if (ap) drawApMarkups(c, V.sheet, V.view, { R, lw: Math.max(0.6, R * 0.1), penW: Math.max(0.8, R * 0.13), sel: V.sel, wsel: V.wsel, labels: V.opts.labels, memo: true, screen: true, tags: 'ap' });
-  else drawMarkups(c, V.sheet, V.view, { R, lw: Math.max(0.6, R * 0.1), penW: Math.max(0.8, R * 0.13), disp: V.disp, numMap: V.numMap, sel: V.sel, labels: V.opts.labels, badges: true, tags: 'm', prefixOf, prefix: V.disp !== 'field' ? (S.proj.settings.itemPrefix[V.disp] || '') : '' });
+  if (ap) drawApMarkups(c, V.sheet, V.view, { R, lw: Math.max(0.6, R * 0.1), penW: Math.max(0.8, R * 0.13), sel: V.sel, wsel: V.wsel, labels: V.opts.labels, selLabel: true, memo: true, screen: true, tags: 'ap' });
+  else drawMarkups(c, V.sheet, V.view, { R, lw: Math.max(0.6, R * 0.1), penW: Math.max(0.8, R * 0.13), disp: V.disp, numMap: V.numMap, sel: V.sel, labels: V.opts.labels, selLabel: true, badges: true, tags: 'm', prefixOf, prefix: V.disp !== 'field' ? (S.proj.settings.itemPrefix[V.disp] || '') : '' });
   if (V.stroke) {
     const p = V.stroke.pts; c.beginPath(); c.moveTo(p[0].x, p[0].y); for (const q of p) c.lineTo(q.x, q.y);
     c.lineCap = 'round'; c.lineJoin = 'round';
@@ -3265,6 +3274,16 @@ function syncTools() {
   syncShapeBar();
 }
 /** ◀ ▶: 조사용 도면끼리만 넘기기 (일람표 같은 참고 도면은 ‘참고 도면’ 버튼으로) */
+/** 위치표시 옆 글씨(부재·크기·결함 등) 화면 켜기/끄기. 꺼도 누른 위치는 글씨가 보임. 화면에만 (내보내기 위치도는 원래 글씨 없음) */
+function setLabels(on) {
+  V.opts.labels = !!on; saveOpts(); syncLabelTog(); requestRender(false);
+  if (typeof PK !== 'undefined' && PK.open && typeof peekDraw === 'function') peekDraw();
+  toast(on ? '위치표시 옆 글씨를 보입니다' : '위치표시 옆 글씨를 숨겼습니다 · 위치를 누르면 그 위치만 보입니다', { ms: 2200 });
+}
+function syncLabelTog() {
+  const b = $('#lblTog'); if (!b) return; const on = V.opts.labels !== false;
+  b.classList.toggle('off', !on); b.setAttribute('aria-pressed', String(on)); b.querySelector('small').textContent = on ? '글씨 켬' : '글씨 끔';
+}
 function syncMarkStyle() { const st = V.opts.markStyle || 'arrow'; for (const b of $$('#mStyle button')) { const on = b.dataset.s === st; b.classList.toggle('on', on); b.setAttribute('aria-pressed', String(on)); } }
 function stepSheet(d) {
   const all = S.proj.sheets; if (!all.length) return;
@@ -3320,7 +3339,7 @@ function openMoreMenu(ev) {
     it('도면 흐리게', o.fade ? '켜짐' : '꺼짐', () => { o.fade = !o.fade; saveOpts(); requestRender(); scheduleHi(); }),
     V.mode === 'ap' && typeof wallAlphaControl === 'function' ? wallAlphaControl('mi mi-range') : null,
     it('도면 색', { dark: '진하게', mono: '흑백', orig: '원래 색' }[o.colorMode], () => { o.colorMode = { dark: 'mono', mono: 'orig', orig: 'dark' }[o.colorMode]; saveOpts(); requestRender(); }),
-    it('부재 라벨 표시', o.labels ? '켜짐' : '꺼짐', () => { o.labels = !o.labels; saveOpts(); requestRender(false); }),
+    it('위치표시 옆 글씨 (부재·크기 등)', o.labels ? '켜짐' : '꺼짐', () => setLabels(!o.labels)),
     it('손가락으로도 그리기', o.finger ? '켜짐' : '꺼짐', () => { o.finger = !o.finger; saveOpts(); toast(o.finger ? '손가락 한 개로 그리고, 두 손가락으로 이동·확대합니다' : 'S펜으로 그리고, 손가락으로 이동·확대합니다'); }),
     typeof ORI_MENU === 'function' && ORI_MENU() ? it('가로 화면 고정', oriStatusText(), () => { ORI.ok = false; lockLandscapeByTouch(true); setTimeout(() => toast('가로 화면 고정: ' + oriStatusText(), { ms: 4000 }), 700); }) : null,
     it('문제 기록 저장', '멈춤 신고용', () => diagExport()),
