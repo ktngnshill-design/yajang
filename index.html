@@ -217,6 +217,14 @@ select.in.disp { min-height: 44px; width: auto; max-width: 260px; }
 .sb-seg.sb-items button { flex-direction: row; gap: 6px; height: 44px; min-width: 0; padding: 0 12px; font-size: 14px; }
 .sb-seg.sb-items button i { width: 12px; height: 12px; border-radius: 3px; flex: none; }
 .sb-seg.sb-items button.on { font-weight: 700; }
+/* 고른 글자 메모: 크기 − % + · 기본 */
+.sb-seg.tsz { align-items: stretch; }
+.sb-seg.tsz .tsz-b { min-width: 48px; font-size: 22px; color: var(--navy-ink); }
+.sb-seg.tsz span { display: flex; flex-direction: column; align-items: center; justify-content: center; min-width: 84px; padding: 0 6px; line-height: 1.25; border-inline: 1px solid var(--line); }
+.sb-seg.tsz span small { font-size: 11px; color: var(--muted); }
+.sb-seg.tsz span b { font-weight: 400; font-size: 15px; color: var(--navy-ink); font-variant-numeric: tabular-nums; }
+.sb-seg.tsz .tsz-r { min-width: 50px; }
+.sb-seg button:disabled { opacity: .4; cursor: default; }
 .sb-del { height: 50px; border-radius: 12px; border: 1px solid #f0c4c2; background: #fff; color: var(--red); padding: 0 12px; cursor: pointer; box-shadow: 0 2px 6px rgba(20,35,60,.12); }
 .msize span { display: flex; flex-direction: column; align-items: center; min-width: 64px; padding: 0 4px; line-height: 1.2; border-inline: 1px solid var(--line); }
 .msize span small { font-size: 11px; }
@@ -779,7 +787,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
 </script>
 
 <script>
-const APP_VERSION = '2026.11.18-1626';
+const APP_VERSION = '2026.11.18-1635';
 const APP_EDITION = 'field';
 'use strict';
 /* ================= 기본 유틸 ================= */
@@ -1068,7 +1076,16 @@ function toggleDefectType(a, v) {
 }
 /** 파일 이름용: 수평균열+백태 */
 const defectFileName = a => defectTypes(a).join('+');
-function normSheetAp(s) { s.ap = s.ap || []; s.walls = s.walls || []; for (const a of s.ap) normApItem(a); for (const w of s.walls) { w.kind = 'wall'; w.part = WALL_PARTS.includes(w.part) ? w.part : '채움벽'; w.thick = isRcWall(w.part) ? String(w.thick == null ? '' : w.thick) : (w.thick || '1.0B'); w.h = w.h || ''; w.memo = w.memo || ''; w.photos = w.photos || []; w.shots = w.shots || []; } return s; }
+function normSheetAp(s) { s.ap = s.ap || []; s.walls = s.walls || []; for (const a of s.ap) normApItem(a); for (const w of s.walls) { w.kind = 'wall'; w.part = WALL_PARTS.includes(w.part) ? w.part : '채움벽'; w.thick = isRcWall(w.part) ? String(w.thick == null ? '' : w.thick) : (w.thick || '1.0B'); w.h = w.h || (w.part === '채움벽' ? 'F' : ''); w.memo = w.memo || ''; w.photos = w.photos || []; w.shots = w.shots || []; } return s; }
+/** 벽 종류 바꾸기: 조적 ↔ RC면 두께 단위도 (B ↔ mm), 채움벽은 높이 F 자동 · 채움벽에서 바꾸면 F 지움. 바뀌었으면 true */
+function applyWallPart(w, pt, rcT, bT) {
+  if (w.part === pt) return false;
+  if (isRcWall(pt) !== isRcWall(w.part)) w.thick = isRcWall(pt) ? String(rcT || '') : (AP_WALL[bT] ? bT : '1.0B');
+  const wasFill = w.part === '채움벽'; w.part = pt;
+  if (pt === '채움벽') w.h = 'F';
+  else if (wasFill && String(w.h || '').trim().toUpperCase() === 'F') w.h = '';
+  return true;
+}
 /** 벽 이름 (도면 안 순서): 조적채움벽 3 (1.0B) · RC허리벽 4 (150mm) */
 const wallName = (s, w) => { const t = wallThickText(w.part, w.thick); return `${wallKindName(w.part)} ${(s.walls || []).indexOf(w) + 1}${t ? ` (${t})` : ''}`; };
 function normApItem(a) {
@@ -2349,9 +2366,14 @@ function drawNotes(c, sheet, view, o) {
       if (o.sel && o.sel.type === 's' && o.sel.id === st.id) { c.strokeStyle = 'rgba(240,138,0,.45)'; c.lineWidth = o.penW + 6; c.stroke(); }
     }
     for (const t of sheet.texts) {
-      c.font = `${(R * 1.0).toFixed(1)}px ${UI_FONT}`; c.textAlign = 'left'; c.textBaseline = 'alphabetic';
-      c.lineWidth = R * 0.25; c.strokeStyle = '#fff'; c.strokeText(t.s, X(t.x), Y(t.y)); c.fillStyle = t.color || red; c.fillText(t.s, X(t.x), Y(t.y));
-      if (o.sel && o.sel.type === 't' && o.sel.id === t.id) { const w = c.measureText(t.s).width; c.strokeStyle = '#f08a00'; c.lineWidth = 2; c.strokeRect(X(t.x) - 3, Y(t.y) - R * 1.0, w + 6, R * 1.3); }
+      const fs = R * textSz(t);   // 글자 메모마다 크기 따로 (기본 = 번호 크기)
+      c.font = `${fs.toFixed(1)}px ${UI_FONT}`; c.textAlign = 'left'; c.textBaseline = 'alphabetic';
+      c.lineWidth = fs * 0.25; c.strokeStyle = '#fff'; c.strokeText(t.s, X(t.x), Y(t.y)); c.fillStyle = t.color || red; c.fillText(t.s, X(t.x), Y(t.y));
+      if (o.sel && o.sel.type === 't' && o.sel.id === t.id) {
+        const w = c.measureText(t.s).width, x0 = X(t.x) - 3, y0 = Y(t.y) - fs * 1.0, x1 = X(t.x) + w + 3, y1 = Y(t.y) + fs * 0.3;
+        c.strokeStyle = '#f08a00'; c.lineWidth = 2; c.strokeRect(x0, y0, x1 - x0, y1 - y0);
+        c.beginPath(); c.arc(x1, y1, 7, 0, Math.PI * 2); c.fillStyle = '#fff'; c.fill(); c.lineWidth = 2.5; c.stroke();   // 크기 조절 손잡이 (오른쪽 아래)
+      }
     }
   }
 }
@@ -2893,12 +2915,23 @@ function hitShape(pt, edgeOnly) {
 }
 function selShape() { return V.sel && V.sel.type === 'g' && V.sheet ? shapesOf(V.sheet).find(g => g.id === V.sel.id) || null : null; }
 function hitShapeHandle(g, pt) { const cs = shapeCorners(g); for (let k = 0; k < 4; k++) { const [x, y] = w2s(cs[k][0], cs[k][1]); if (Math.hypot(pt.x - x, pt.y - y) < 17) return k; } return -1; }
+/** 글자 메모 크기 배율 (번호 크기 기준, 0.3~6배) */
+function textSz(t) { const v = +t.sz; return v > 0 ? clamp(v, 0.3, 6) : 1; }
+/** 화면에서 글자 메모 상자 (글자 크기 반영) */
+function textBox(t) {
+  const fs = markerR() * textSz(t); V.fgx.font = `${fs.toFixed(1)}px ${UI_FONT}`;
+  const [x, y] = w2s(t.x, t.y), w = V.fgx.measureText(t.s).width, f = Math.max(fs, 10);
+  return { x, y, fs, x0: x - 3, x1: x + w + 3, y0: y - f * 1.0, y1: y + f * 0.3 };
+}
 function hitText(pt) {
   if (V.disp !== 'field') return null;
-  const R = Math.max(markerR(), 8); V.fgx.font = `${R}px ${UI_FONT}`;
-  for (let k = V.sheet.texts.length - 1; k >= 0; k--) { const t = V.sheet.texts[k]; const [x, y] = w2s(t.x, t.y); const w = V.fgx.measureText(t.s).width; if (pt.x > x - 6 && pt.x < x + w + 6 && pt.y > y - R * 1.1 && pt.y < y + R * 0.4) return t; }
+  for (let k = V.sheet.texts.length - 1; k >= 0; k--) { const t = V.sheet.texts[k]; const b = textBox(t); if (pt.x > b.x0 - 4 && pt.x < b.x1 + 4 && pt.y > b.y0 - 4 && pt.y < b.y1 + 4) return t; }
   return null;
 }
+function selText() { return V.sel && V.sel.type === 't' && V.sheet && V.disp === 'field' ? V.sheet.texts.find(t => t.id === V.sel.id) || null : null; }
+function hitTextHandle(t, pt) { const b = textBox(t); return Math.hypot(pt.x - b.x1, pt.y - (b.y + b.fs * 0.3)) < 18; }
+/** 고른 글자 메모 크기 바꾸기 (f배) */
+function scaleText(t, f) { if (!t || lockGuard()) return; pushUndo(); t.sz = clamp(Math.round(textSz(t) * f * 100) / 100, 0.3, 6); if (Math.abs(t.sz - 1) < 0.005) delete t.sz; touchSheet(); syncShapeBar(); }
 
 /* ================= 도구 ================= */
 function toolDown(pt) {
@@ -2906,7 +2939,10 @@ function toolDown(pt) {
   if (t === 'calib') { V.drag = { kind: 'calib' }; return; }
   if (t === 'region') { V.drag = { kind: 'rect', a: pt, b: pt }; return; }
   if (t === 'erase') { V.drag = { kind: 'erase', pushed: false }; eraseAt(pt); return; }
-  if (t === 'text') { V.drag = { kind: 'text' }; return; }
+  if (t === 'text' || t === 'select') {   // 고른 글자 메모의 오른쪽 아래 손잡이 끌기 = 그 글자만 크기 조절
+    const stx = selText(); if (stx && !isLocked() && hitTextHandle(stx, pt)) { const b = textBox(stx); V.drag = { kind: 'tres', t: stx, ax: b.x, ay: b.y, hx: b.x1 - b.x, hy: b.fs * 0.3, sz0: textSz(stx), pushed: false }; return; }
+  }
+  if (t === 'text') { const tx = hitText(pt); if (tx) { const was = selText() === tx; V.sel = { type: 't', id: tx.id }; V.drag = { kind: 'move', o: tx, pushed: false, last: pt, wasSel: was }; requestRender(false); return; } V.drag = { kind: 'text' }; return; }
   if (t === 'shape') {   // 끌면 새 도형, 고른 도형 모서리는 크기 조절
     const sg = selShape(); if (sg) { const k = hitShapeHandle(sg, pt); if (k >= 0) { V.drag = { kind: 'gres', g: sg, k, pushed: false }; return; } }
     V.drag = { kind: 'shape', a: pt, b: pt }; return;
@@ -2923,7 +2959,7 @@ function toolDown(pt) {
       const sw = selWall(); if (sw) { const k = hitWallEnd(sw, pt); if (k >= 0) { V.drag = { kind: 'wend', w: sw, k, pushed: false }; return; } }
       const w = hitWall(pt); if (w) { V.sel = { type: 'w', id: w.id }; V.drag = { kind: 'move', o: w, pushed: false, last: pt }; return; }
       const sg = selShape(); if (sg) { const k = hitShapeHandle(sg, pt); if (k >= 0) { V.drag = { kind: 'gres', g: sg, k, pushed: false }; return; } }
-      const tx = hitText(pt); if (tx) { V.sel = { type: 't', id: tx.id }; V.drag = { kind: 'move', o: tx, pushed: false, last: pt }; return; }
+      const tx = hitText(pt); if (tx) { const was = selText() === tx; V.sel = { type: 't', id: tx.id }; V.drag = { kind: 'move', o: tx, pushed: false, last: pt, wasSel: was }; return; }
       const st = hitStroke(pt); if (st) { V.sel = { type: 's', id: st.id }; V.drag = { kind: 'move', o: st, pushed: false, last: pt }; return; }
       const g = hitShape(pt); if (g) { V.sel = { type: 'g', id: g.id }; V.drag = { kind: 'move', o: g, pushed: false, last: pt }; return; }
       V.sel = null; V.drag = { kind: 'pan', last: pt }; return;
@@ -2971,6 +3007,12 @@ function toolMove(pt) {
     }
     else if (d.kind === 'gres' && mv) { if (!d.pushed) { pushUndo(); d.pushed = true; } const [wx, wy] = s2w(pt.x, pt.y); if (d.k === 0 || d.k === 3) d.g.x0 = wx; else d.g.x1 = wx; if (d.k < 2) d.g.y0 = wy; else d.g.y1 = wy; }
     else if (d.kind === 'shape') d.b = pt;
+    else if (d.kind === 'tres' && mv) {   // 손잡이를 처음 위치 쪽으로 투영한 비율만큼
+      if (!d.pushed) { pushUndo(); d.pushed = true; }
+      const L2 = d.hx * d.hx + d.hy * d.hy || 1, r = ((pt.x - d.ax) * d.hx + (pt.y - d.ay) * d.hy) / L2;
+      d.t.sz = clamp(Math.round(d.sz0 * r * 100) / 100, 0.3, 6); requestRender(false);
+      const vb = $('#shapeBar .tsz b'); if (vb) vb.textContent = Math.round(textSz(d.t) * 100) + '%';
+    }
     else if (d.kind === 'pan') { V.view.tx += pt.x - d.last.x; V.view.ty += pt.y - d.last.y; d.last = pt; viewChanged(); }
     else if (d.kind === 'erase') eraseAt(pt);
     else if (d.kind === 'rect') d.b = pt;
@@ -2984,7 +3026,7 @@ function toolUp(pt) {
   if (d) {
     if (d.kind === 'whole') { if (d.wholeMoved) touchSheet(); else requestRender(false); }
     else if (d.kind === 'marker') { if (!moved) { V.sel = { type: 'm', id: d.m.id }; openPanel(d.m); } else touchSheet(); }
-    else if (d.kind === 'tip' || d.kind === 'aim' || d.kind === 'move' || d.kind === 'wend') { if (moved) touchSheet(); else if (d.kind === 'move' && d.o.s != null) editText(d.o); else if (d.kind === 'move' && isWall(d.o)) wallTap(d.o); else if (d.kind === 'wend') openPanel(d.w); }
+    else if (d.kind === 'tip' || d.kind === 'aim' || d.kind === 'move' || d.kind === 'wend') { if (moved) touchSheet(); else if (d.kind === 'move' && d.o.s != null) { if (d.wasSel) editText(d.o); else { syncShapeBar(); requestRender(false); } } else if (d.kind === 'move' && isWall(d.o)) wallTap(d.o); else if (d.kind === 'wend') openPanel(d.w); }   // 글자: 처음 톡 = 고르기(아래 줄에서 크기·색), 고른 글자 다시 톡 = 고치기
     else if (d.kind === 'pan') { endGesture(); if (d.ro && !moved) tapAt(pt); }
     else if (d.kind === 'erase') { if (d.pushed) touchSheet(); }
     else if (d.kind === 'calib') calibPoint(pt);
@@ -2993,6 +3035,7 @@ function toolUp(pt) {
     else if (d.kind === 'text') addTextAt(pt);
     else if (d.kind === 'shape') finishShape(d.a, d.b, moved);
     else if (d.kind === 'gres') { normShape(d.g); if (moved) touchSheet(); }
+    else if (d.kind === 'tres') { if (d.pushed) touchSheet(); syncShapeBar(); }
   } else if (V.stroke) {
     const st = V.stroke; V.stroke = null;
     if (st.kind === 'arrow') finishArrow(st.pts); else if (st.kind === 'wall') finishWall(st.pts); else finishPen(st.pts);
@@ -3083,8 +3126,24 @@ function finishShape(a, b, moved) {
   const g = shapeFromDrag(a, b); pushUndo(); shapesOf(V.sheet).push(g); V.sel = { type: 'g', id: g.id }; touchSheet();
 }
 /** 도형 도구 줄 (아래 왼쪽): 모양 · 빗금/선만 · 색. 도형을 골라 두었으면 그 도형도 바꿈 */
+function syncTextBar(box, st) {
+  box.innerHTML = '';
+  const ico = d => h('span', { html: `<svg viewBox="0 0 24 24" width="21" height="21" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${d}</svg>` });
+  const ro = isLocked();
+  box.append(h('div', { class: 'sb-seg tsz', role: 'group', 'aria-label': '이 글자 크기' },
+    h('button', { type: 'button', class: 'tsz-b', disabled: ro, 'aria-label': '글자 작게', onclick: () => scaleText(st, 1 / 1.2) }, '−'),
+    h('span', null, h('small', null, '이 글자 크기'), h('b', null, Math.round(textSz(st) * 100) + '%')),
+    h('button', { type: 'button', class: 'tsz-b', disabled: ro, 'aria-label': '글자 크게', onclick: () => scaleText(st, 1.2) }, '+'),
+    h('button', { type: 'button', class: 'tsz-r', disabled: ro || textSz(st) === 1, title: '번호 크기에 맞춘 기본 크기로', onclick: () => scaleText(st, 1 / textSz(st)) }, h('small', null, '기본'))));
+  if (!ro) box.append(h('div', { class: 'sb-seg sb-cols', role: 'group', 'aria-label': '이 글자 색' }, PEN_COLORS.map(col => h('button', { type: 'button', class: 'sw' + ((st.color || '#d1342f') === col ? ' on' : ''), style: { background: col }, 'aria-label': '글자 색', onclick: () => { pushUndo(); st.color = col; V.opts.penColor = col; saveOpts(); touchSheet(); syncTools(); } }))));
+  if (!ro) box.append(h('div', { class: 'sb-seg' },
+    h('button', { type: 'button', title: '내용 고치기', onclick: () => editText(st) }, ico('<path d="M4 20h4L19 9l-4-4L4 16z"/><path d="M13.5 6.5l4 4"/>'), h('small', null, '고치기'))));
+  if (!ro) box.append(h('button', { type: 'button', class: 'sb-del', onclick: () => { deleteSelection(); syncShapeBar(); } }, '이 글자 지우기'));
+}
 function syncShapeBar() {
   const box = $('#shapeBar'); if (!box) return;
+  const st = (V.tool === 'text' || V.tool === 'select') ? selText() : null;
+  if (st) { box.hidden = false; $('#stage').classList.add('shaping'); syncTextBar(box, st); return; }
   const sg = V.tool === 'shape' || V.tool === 'select' ? selShape() : null, on = !!V.sheet && (V.tool === 'shape' || !!sg);
   box.hidden = !on; $('#stage').classList.toggle('shaping', on); if (!on) { box.innerHTML = ''; return; }
   const sv = curShapeV();
@@ -3110,18 +3169,19 @@ function syncShapeBar() {
   box.append(h('div', { class: 'sb-seg sb-cols', role: 'group', 'aria-label': '색' }, PEN_COLORS.map(col => h('button', { type: 'button', class: 'sw' + (cur.color === col ? ' on' : ''), style: { background: col }, 'aria-label': '도형 색', onclick: () => { V.opts.penColor = col; apply(g => { g.color = col; }); } }))));
   if (sg) box.append(h('button', { type: 'button', class: 'sb-del', onclick: () => { deleteSelection(); syncShapeBar(); } }, '이 도형 지우기'));
 }
-function syncShapeBarLazy() { const sg = selShape(), k = `${V.tool}|${sg ? sg.id : ''}|${V.sheet ? V.sheet.id : ''}|${V.mode}|${V.disp}|${V.apKind}`; if (k !== V.sbKey) { V.sbKey = k; syncShapeBar(); } }
+function syncShapeBarLazy() { const sg = selShape(), stx = selText(), k = `${V.tool}|${sg ? sg.id : ''}|${stx ? stx.id + ':' + textSz(stx) + ':' + stx.color : ''}|${isLocked()}|${V.sheet ? V.sheet.id : ''}|${V.mode}|${V.disp}|${V.apKind}`; if (k !== V.sbKey) { V.sbKey = k; syncShapeBar(); } }
 async function addTextAt(pt) {
   const w = s2w(pt.x, pt.y);
   const s = await promptDlg('글자 메모', '도면에 적을 내용 (예: 균열, 누수, 마감 두께 30)');
   if (!s || !s.trim()) return;
-  pushUndo(); V.sheet.texts.push({ id: uid(), x: w[0], y: w[1], s: s.trim(), color: V.opts.penColor }); touchSheet(); requestRender(false);
+  const t = { id: uid(), x: w[0], y: w[1], s: s.trim(), color: V.opts.penColor };
+  pushUndo(); V.sheet.texts.push(t); V.sel = { type: 't', id: t.id }; touchSheet(); syncShapeBar(); requestRender(false);
 }
 async function editText(t) {
   const s = await promptDlg('글자 메모 고치기', '내용 (비우면 지웁니다)', t.s);
   if (s == null) return; pushUndo();
-  if (!s.trim()) V.sheet.texts = V.sheet.texts.filter(x => x !== t); else t.s = s.trim();
-  touchSheet(); requestRender(false);
+  if (!s.trim()) { V.sheet.texts = V.sheet.texts.filter(x => x !== t); if (V.sel && V.sel.id === t.id) V.sel = null; } else t.s = s.trim();
+  touchSheet(); syncShapeBar(); requestRender(false);
 }
 function eraseAt(pt) {
   const d = V.drag; const push = () => { if (!d.pushed) { pushUndo(); d.pushed = true; } };
@@ -3266,7 +3326,7 @@ function buildToolbar() {
   $('#counter').onclick = editCounters;
   syncTools(); updateUndoBtns();
 }
-function setTool(k) { if (k !== 'arrow' && isLocked()) { lockGuard(); return; } if (V.calib && k !== 'calib') { V.calib = null; hideBanner(); } if (V.tool === 'region' && k !== 'region') hideBanner(); if (k !== 'shape' && k !== 'select' && V.sel && V.sel.type === 'g') V.sel = null; V.tool = k; syncTools(); requestRender(false); }
+function setTool(k) { if (k !== 'arrow' && isLocked()) { lockGuard(); return; } if (V.calib && k !== 'calib') { V.calib = null; hideBanner(); } if (V.tool === 'region' && k !== 'region') hideBanner(); if (k !== 'shape' && k !== 'select' && V.sel && V.sel.type === 'g') V.sel = null; if (k !== 'text' && k !== 'select' && V.sel && V.sel.type === 't') V.sel = null; V.tool = k; syncTools(); requestRender(false); }
 function syncTools() {
   $$('#toolBtns .tool').forEach(b => b.classList.toggle('on', b.dataset.tool === V.tool));
   $('#penColors').hidden = !(V.tool === 'pen' || V.tool === 'text');
@@ -4687,8 +4747,8 @@ function syncApBar() {
   if (V.apKind === 'wall') box.append(h('div', { class: 'ap-seg snap', role: 'group', 'aria-label': '조적벽 선 각도' }, [[true, '수평·수직·45°', '<path d="M5 19V5M5 19h14M5 19L16 8"/>'], [false, '자유 각도', '<path d="M4 17L20 8"/><circle cx="4" cy="17" r="1.8"/><circle cx="20" cy="8" r="1.8"/>']].map(([v, lb, ic]) =>
     h('button', { type: 'button', class: V.wallSnap === v ? 'on' : '', 'aria-pressed': String(V.wallSnap === v), title: v ? '수평·수직·45°로 맞춰 그리기' : '보정 없이 그은 방향 그대로', onclick: () => { V.wallSnap = v; lsSet('wallSnap', v ? '1' : '0'); syncApBar(); toast(v ? '조적벽을 수평·수직·45°로 맞춰 그립니다' : '조적벽을 그은 방향 그대로 그립니다 (끝점은 다른 벽 끝에 붙음)', { ms: 2200 }); } },
       h('span', { class: 'ap-ic', html: `<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ic}</svg>` }), h('span', null, lb)))));
-  // 조적벽 여러 개 고르기 (높이 한꺼번에 입력)
-  if (V.apKind === 'wall') box.append(h('div', { class: 'ap-seg thick multi' }, h('button', { type: 'button', class: V.wallMulti ? 'on' : '', 'aria-pressed': String(V.wallMulti), title: '벽을 톡톡 눌러 여러 개 고르고 높이를 한꺼번에 입력 (PC: Shift+클릭)', onclick: () => setWallMulti(!V.wallMulti) },
+  // 조적벽 여러 개 고르기 (종류·두께·높이 한꺼번에)
+  if (V.apKind === 'wall') box.append(h('div', { class: 'ap-seg thick multi' }, h('button', { type: 'button', class: V.wallMulti ? 'on' : '', 'aria-pressed': String(V.wallMulti), title: '벽을 톡톡 눌러 여러 개 고르고 종류·두께·높이를 한꺼번에 (PC: Shift+클릭)', onclick: () => setWallMulti(!V.wallMulti) },
     h('span', { class: 'ap-ic', html: '<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M4 7h9M4 12h9M4 17h9"/><path d="M16 7l1.5 1.5L21 5M16 14l1.5 1.5L21 12"/></svg>' }), h('span', null, V.wallMulti ? `여러 개 선택 ${V.wsel.size ? V.wsel.size + '개' : '중'}` : '여러 개 선택'))));
   // 조적벽 선 투명도 (화면에서만 – 밑의 도면 선이 비쳐 보이게)
   if (V.apKind === 'wall') box.append(wallAlphaControl('ap-seg alpha'));
@@ -4738,11 +4798,11 @@ function finishWall(pts) {
     requestRender(false); return;
   }
   pushUndo();
-  const w = { id: uid(), kind: 'wall', pts: [g.a.w[0], g.a.w[1], g.b.w[0], g.b.w[1]], thick: isRcWall(V.wallPart) ? V.rcThick : V.wallThick, part: V.wallPart, h: '', memo: '', photos: [], shots: [], created: Date.now() };
+  const w = { id: uid(), kind: 'wall', pts: [g.a.w[0], g.a.w[1], g.b.w[0], g.b.w[1]], thick: isRcWall(V.wallPart) ? V.rcThick : V.wallThick, part: V.wallPart, h: V.wallPart === '채움벽' ? 'F' : '', memo: '', photos: [], shots: [], created: Date.now() };
   V.sheet.walls.push(w); touchSheet(); syncApBar();
   if (V.panelM && isWall(V.panelM)) { V.sel = { type: 'w', id: w.id }; openPanel(w); } else V.sel = null;
 }
-/* ================= 조적벽 여러 개 고르기 → 높이 한꺼번에 =================
+/* ================= 조적벽 여러 개 고르기 → 종류·두께·높이 한꺼번에 =================
  * 태블릿: 위쪽 ‘여러 개 선택’을 켜고 벽을 톡톡 (다시 누르면 빠짐) / PC: Shift·Ctrl+클릭.
  * 2개 이상 고르면 상세창이 ‘조적벽 n개 선택’으로 바뀌고, 높이 H를 넣으면 고른 벽 모두에 같은 값이 들어감 */
 const WMULTI = { kind: 'wallMulti', id: '__wmulti' };
@@ -4785,6 +4845,8 @@ function setWallMulti(on, seed) {
   else { const ws = selWalls(); V.wsel.clear(); if (V.panelM === WMULTI) { if (ws.length) { V.sel = { type: 'w', id: ws[0].id }; openPanel(ws[0]); } else closePanel(); } else if (V.panelM && isWall(V.panelM)) renderPanel(); }
   syncApBar(); requestRender(false);
 }
+/** 숫자패드 ‘F’: 높이 칸을 F로 (채움벽 = 전체 높이) */
+function hSetF(t2) { t2.value = 'F'; t2.dispatchEvent(new Event('input', { bubbles: true })); NPAD.fresh = true; }
 function renderWallMulti(P) {
   P.innerHTML = ''; P.classList.remove('wide');
   const sh = V.sheet, ws = selWalls(); if (!ws.length) { closePanel(); return; }
@@ -4796,17 +4858,41 @@ function renderWallMulti(P) {
     h('button', { class: 'btn small', type: 'button', onclick: () => setWallMulti(false), title: '여러 개 선택 끝내기' }, '선택 끝'),
     h('button', { class: 'btn small', type: 'button', onclick: () => { V.wsel.clear(); closePanel(); }, 'aria-label': '닫기' }, '닫기')));
   const body = h('div', { class: 'pn-body' }), npSlot = h('div', { class: 'np-slot' }); P.append(body, npSlot); V.panelBoard = null;
+  // 종류: 고른 벽 모두 (채움벽은 높이 F 자동 · 채움벽에서 바꾸면 F 지움 · 되돌리면 높이도 같이)
+  const allSame = k => ws.every(w => (w[k] || '') === (ws[0][k] || '')) ? (ws[0][k] || '') : null;
+  const part0 = allSame('part');
+  body.append(h('div', { class: 'pn-sec' }, h('h3', null, '종류', h('small', null, part0 ? `고른 ${ws.length}개 모두 ${part0}` : '서로 다름 – 누르면 모두 같은 종류로')),
+    segRow(WALL_PARTS, part0, pt => {
+      const chg = ws.filter(w => w.part !== pt); if (!chg.length) return;
+      pushUndo(chg.map(w => ({ o: w, keys: ['h'] })));
+      for (const w of chg) applyWallPart(w, pt, V.rcThick, V.wallThick);
+      V.wallPart = pt; lsSet('wallPart', pt); touchSheet(); syncApBar(); renderPanel();
+      toast(`${chg.length}개를 ${pt}(으)로 바꿨습니다${pt === '채움벽' ? ' · 높이 F' : ''}`, { ms: 2000 });
+    })));
+  // 두께: 조적(채움·허리)은 0.5B·1.0B·1.5B, RC 허리벽은 mm – 섞여 있으면 각각 그 벽에만
+  const bw = ws.filter(w => !isRcWall(w.part)), rw = ws.filter(w => isRcWall(w.part)), mixed = bw.length && rw.length;
+  if (bw.length) {
+    const t0 = bw.every(w => w.thick === bw[0].thick) ? bw[0].thick : null;
+    body.append(h('div', { class: 'pn-sec' }, h('h3', null, '두께', h('small', null, mixed ? `조적벽 ${bw.length}개에만` : t0 ? `${bw.length}개 모두 ${t0}` : '서로 다름 – 누르면 모두 같은 두께로')),
+      segRow(Object.keys(AP_WALL), t0, t => { const chg = bw.filter(w => w.thick !== t); if (!chg.length) return; pushUndo(); for (const w of chg) w.thick = t; V.wallThick = t; lsSet('wallThick', t); touchSheet(); syncApBar(); renderPanel(); })));
+  }
+  if (rw.length) {
+    const r0 = rw.every(w => (w.thick || '') === (rw[0].thick || '')) ? (rw[0].thick || '') : null;
+    const tIn = npField(h('input', { class: 'in', value: r0 == null ? '' : r0, placeholder: r0 == null ? '값이 서로 다름 – 넣으면 모두 같은 값으로' : '예: 150', 'aria-label': 'RC 허리벽 두께 mm (고른 벽 모두)' }), { key: 'wallm:t', label: `RC 허리벽 두께 mm (${rw.length}개)` });
+    tIn.addEventListener('input', () => { const v = tIn.value.replace(/\D/g, '').slice(0, 4); if (v !== tIn.value) tIn.value = v; for (const w of rw) w.thick = v; V.rcThick = v; lsSet('rcThick', v); touch(); syncApBar(); requestRender(false); });
+    body.append(h('div', { class: 'pn-sec' }, h('h3', null, mixed ? 'RC 허리벽 두께' : '두께', h('small', null, mixed ? `mm · RC 허리벽 ${rw.length}개에만` : 'mm · 고른 벽 모두')), tIn));
+  }
   // 높이 H: 고른 벽 모두에 (값이 다르면 빈칸으로 보여 줌)
   const same = ws.every(w => (w.h || '') === (ws[0].h || ''));
   const fmtH = s => s.replace(/,/g, '').replace(/\d{4,}/g, m => Number(m).toLocaleString('en-US'));
   const hIn = npField(h('input', { class: 'in', value: same ? (ws[0].h || '') : '', placeholder: same ? '예: 3,300-보춤' : '값이 서로 다름 – 넣으면 모두 같은 값으로', 'aria-label': '높이 H (고른 벽 모두)' }), {
     key: 'wallm:h', label: `높이 H (${ws.length}개)`, format: fmtH,
     back: v => (v.endsWith('보춤') ? v.slice(0, -2).replace(/-$/, '') : v.slice(0, -1)),
-    extras: [{ label: '-', text: '-' }, { label: '보춤', fn: t2 => { t2.value = fmtH((t2.value || '') + (/\d$/.test(t2.value || '') ? '-보춤' : '보춤')); t2.dispatchEvent(new Event('input', { bubbles: true })); NPAD.fresh = false; } }],
+    extras: [{ label: '-', text: '-' }, { label: '보춤', fn: t2 => { t2.value = fmtH((t2.value || '') + (/\d$/.test(t2.value || '') ? '-보춤' : '보춤')); t2.dispatchEvent(new Event('input', { bubbles: true })); NPAD.fresh = false; } }, { label: 'F', fn: hSetF }],
   });
   // (높이는 다른 입력칸처럼 되돌리기 대상이 아님 – 고친 값은 다시 넣으면 됨)
   hIn.addEventListener('input', () => { for (const w of ws) w.h = hIn.value; touch(); requestRender(false); for (const td of body.querySelectorAll('.wm-h')) td.textContent = hIn.value || '–'; });
-  body.append(h('div', { class: 'pn-sec' }, h('h3', null, '높이 H', h('small', null, `고른 ${ws.length}개 모두에 같은 값 · ‘보춤’ 버튼으로 3,300-보춤`)), hIn));
+  body.append(h('div', { class: 'pn-sec' }, h('h3', null, '높이 H', h('small', null, `고른 ${ws.length}개 모두에 같은 값 · ‘보춤’ 버튼으로 3,300-보춤 · 채움벽은 F`)), hIn));
   // 고른 벽 목록 (× = 선택에서 빼기)
   body.append(h('div', { class: 'pn-sec' }, h('h3', null, '고른 벽'),
     h('div', { class: 'wm-list' }, ws.map(w => h('div', { class: 'wm-row' },
@@ -4971,9 +5057,9 @@ function renderWallPanel(P, w, keep) {
   const body = h('div', { class: 'pn-body' }), npSlot = h('div', { class: 'np-slot' }); P.append(body, npSlot); V.panelBoard = null;
   // 종류를 바꾸면 두께도 그 종류에 맞게 (조적 ↔ RC: B 단위 ↔ mm)
   const setPart = pt => {
-    if (w.part === pt) return; pushUndo();
-    if (isRcWall(pt) !== isRcWall(w.part)) w.thick = isRcWall(pt) ? V.rcThick : (AP_WALL[V.wallThick] ? V.wallThick : '1.0B');
-    w.part = pt; V.wallPart = pt; lsSet('wallPart', pt); touchSheet(); syncApBar(); renderPanel();
+    if (w.part === pt) return; pushUndo([{ o: w, keys: ['h'] }]);
+    applyWallPart(w, pt, V.rcThick, V.wallThick);
+    V.wallPart = pt; lsSet('wallPart', pt); touchSheet(); syncApBar(); renderPanel();
   };
   body.append(h('div', { class: 'pn-sec' }, h('h3', null, '종류'),
     segRow(WALL_PARTS, w.part, setPart),
@@ -4991,15 +5077,15 @@ function renderWallPanel(P, w, keep) {
   const hIn = npField(h('input', { class: 'in', value: w.h, placeholder: '예: 3,300-보춤', 'aria-label': '높이 H' }), {
     key: 'wall:h', label: '높이 H', format: fmtH,
     back: v => (v.endsWith('보춤') ? v.slice(0, -2).replace(/-$/, '') : v.slice(0, -1)),
-    extras: [{ label: '-', text: '-' }, { label: '보춤', fn: t2 => { t2.value = fmtH((t2.value || '') + (/\d$/.test(t2.value || '') ? '-보춤' : '보춤')); t2.dispatchEvent(new Event('input', { bubbles: true })); NPAD.fresh = false; } }],
+    extras: [{ label: '-', text: '-' }, { label: '보춤', fn: t2 => { t2.value = fmtH((t2.value || '') + (/\d$/.test(t2.value || '') ? '-보춤' : '보춤')); t2.dispatchEvent(new Event('input', { bubbles: true })); NPAD.fresh = false; } }, { label: 'F', fn: hSetF }],
   });
   hIn.addEventListener('input', () => { w.h = hIn.value; touch(); requestRender(false); });   // 도면의 높이 글씨도 바로
   const memo = h('textarea', { class: 'in', placeholder: '개구부(문·창) 위치·치수, 마감, 상태 등' }); memo.value = w.memo;
   memo.addEventListener('input', () => { w.memo = memo.value; touch(); });
-  body.append(h('div', { class: 'pn-sec' }, h('h3', null, '높이 H', h('small', null, '숫자패드의 ‘보춤’ 버튼으로 3,300-보춤')), hIn), h('div', { class: 'pn-sec' }, h('h3', null, '메모'), memo));
+  body.append(h('div', { class: 'pn-sec' }, h('h3', null, '높이 H', h('small', null, w.part === '채움벽' ? '채움벽은 F 자동 · 숫자로 고쳐도 됨' : '숫자패드의 ‘보춤’ 버튼으로 3,300-보춤')), hIn), h('div', { class: 'pn-sec' }, h('h3', null, '메모'), memo));
   // 이 벽 사진 (사진번호 연결 · 바로 찍기)
   body.append(photoBlock(w, { npk: 'wph', label: `${sh.name} ${wallName(sh, w)}`, cap: '내용 (예: 개구부, 균열, 마감 상태)', onChange: () => { npRebind(); requestRender(false); } }));
-  body.append(h('button', { class: 'btn', type: 'button', onclick: () => setWallMulti(!V.wallMulti, w) }, V.wallMulti ? '여러 개 선택 끝내기' : '여러 개 선택 (높이 한꺼번에)'));
+  body.append(h('button', { class: 'btn', type: 'button', onclick: () => setWallMulti(!V.wallMulti, w) }, V.wallMulti ? '여러 개 선택 끝내기' : '여러 개 선택 (종류·두께·높이 한꺼번에)'));
   body.append(h('p', { class: 'hint', style: { margin: 0 } }, '선 끝을 옮기려면 선택·이동 도구로 벽을 고른 뒤 끝의 동그라미를 끄세요. 층별 조적 개체·줄눈 상태는 3 현장조사의 ‘조적조 상태’에 적습니다.'),
     h('button', { class: 'btn', type: 'button', onclick: () => openMasonry() }, '이 층 조적조 상태 적기'));
   P.append(h('div', { class: 'pn-foot' },
