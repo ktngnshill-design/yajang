@@ -796,7 +796,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
 </script>
 
 <script>
-const APP_VERSION = '2026.11.18-1717';
+const APP_VERSION = '2026.11.18-1748';
 const APP_EDITION = 'field';
 'use strict';
 /* ================= 기본 유틸 ================= */
@@ -1086,7 +1086,7 @@ function toggleDefectType(a, v) {
 }
 /** 파일 이름용: 수평균열+백태 */
 const defectFileName = a => defectTypes(a).join('+');
-function normSheetAp(s) { s.ap = s.ap || []; s.walls = s.walls || []; for (const a of s.ap) normApItem(a); for (const w of s.walls) { w.kind = 'wall'; w.part = WALL_PARTS.includes(w.part) ? w.part : '채움벽'; w.thick = isRcWall(w.part) ? String(w.thick == null ? '' : w.thick) : (w.thick || '1.0B'); w.h = w.h || (w.part === '채움벽' ? 'F' : ''); w.memo = w.memo || ''; w.photos = w.photos || []; w.shots = w.shots || []; } return s; }
+function normSheetAp(s) { s.ap = s.ap || []; s.walls = s.walls || []; for (const a of s.ap) normApItem(a); for (const w of s.walls) { w.kind = 'wall'; w.part = WALL_PARTS.includes(w.part) ? w.part : '채움벽'; w.thick = isRcWall(w.part) ? String(w.thick == null ? '' : w.thick) : (w.thick || '1.0B'); w.h = w.h || ''; w.memo = w.memo || ''; w.photos = w.photos || []; w.shots = w.shots || []; } return s; }
 /** 벽 종류 바꾸기: 조적 ↔ RC면 두께 단위도 (B ↔ mm), 채움벽은 높이 F 자동 · 채움벽에서 바꾸면 F 지움. 바뀌었으면 true */
 function applyWallPart(w, pt, rcT, bT) {
   if (w.part === pt) return false;
@@ -3306,7 +3306,8 @@ function restoreSnap(u) {
 /** 상세 입력값이 있는지 (지우기 전에 물어볼지) */
 function itemHasData(o) {
   if (!o) return false;
-  if (isWall(o)) return !!(o.h || o.memo || (o.photos || []).length || (o.shots || []).length);
+  if (isWall(o)) { const autoF = o.part === '채움벽' && String(o.h || '').trim().toUpperCase() === 'F';   // 채움벽 F는 자동값 → 입력한 것으로 안 봄 (지우개·되돌리기에서 안 물어봄)
+    return !!((o.h && !autoF) || o.memo || (o.photos || []).length || (o.shots || []).length); }
   if (isApItem(o)) return !!(apFilled(o) || o.member || o.defect || o.heavy || o.memo || o.note || o.spec || o.w || o.len || o.area || (o.photos || []).length || (o.shots || []).length || skHas(o));
   return !!(isFilled(o) || o.memo || (o.tags || []).length);
 }
@@ -5019,7 +5020,9 @@ function renderWallMulti(P) {
   });
   // (높이는 다른 입력칸처럼 되돌리기 대상이 아님 – 고친 값은 다시 넣으면 됨)
   hIn.addEventListener('input', () => { for (const w of ws) w.h = hIn.value; touch(); requestRender(false); for (const td of body.querySelectorAll('.wm-h')) td.textContent = hIn.value || '–'; });
-  body.append(h('div', { class: 'pn-sec' }, h('h3', null, '높이 H', h('small', null, `고른 ${ws.length}개 모두에 같은 값 · ‘보춤’ 버튼으로 3,300-보춤 · 채움벽은 F`)), hIn));
+  const blankF = ws.filter(w => w.part === '채움벽' && !String(w.h || '').trim());   // 예전 프로젝트: 높이 빈 채움벽만 골라 F (누를 때만)
+  body.append(h('div', { class: 'pn-sec' }, h('h3', null, '높이 H', h('small', null, `고른 ${ws.length}개 모두에 같은 값 · ‘보춤’ 버튼으로 3,300-보춤 · 채움벽은 F`)), hIn,
+    blankF.length ? h('div', { class: 'row' }, h('button', { class: 'btn small', type: 'button', onclick: () => { for (const w of blankF) w.h = 'F'; touch(); requestRender(false); renderPanel(); toast(`높이가 빈 채움벽 ${blankF.length}개를 F로 넣었습니다`); } }, `높이 빈 채움벽 ${blankF.length}개만 F로`), h('small', null, '높이를 적어 둔 벽은 그대로')) : null));
   // 고른 벽 목록 (× = 선택에서 빼기)
   body.append(h('div', { class: 'pn-sec' }, h('h3', null, '고른 벽'),
     h('div', { class: 'wm-list' }, ws.map(w => h('div', { class: 'wm-row' },
